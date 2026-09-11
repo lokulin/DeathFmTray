@@ -28,7 +28,7 @@ public sealed class PlayerForm : Form
         // Fixed size matching the page's own .main-wrapper (1024×500).
         // The death.fm player does not reflow, so we lock the client area to
         // that exact size and remove the maximize button / size grips.
-        var size = new Size(1024, 500);
+        var size = new Size(1050, 550);
         MinimumSize = size;
         MaximumSize = size;
         ClientSize = size; // client area = content size; Form adds titlebar/borders
@@ -85,7 +85,19 @@ public sealed class PlayerForm : Form
 
     private async void PlayerForm_Load(object? sender, EventArgs e)
     {
-        await _webView.EnsureCoreWebView2Async();
+        // Keep WebView2's user-data folder under the user's AppData instead of
+        // next to the exe. The default (DeathFmTray.exe.WebView2) fails when the
+        // app is installed under Program Files where the user has no write access.
+        string userDataFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "DeathFmTray",
+            "WebView2");
+
+        var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
+            browserExecutableFolder: null,
+            userDataFolder: userDataFolder);
+
+        await _webView.EnsureCoreWebView2Async(env);
 
         // Registers the Media Session injection script before the first
         // navigation so it's guaranteed to run on page load (and every
