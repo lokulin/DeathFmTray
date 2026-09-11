@@ -5,16 +5,22 @@ using System.Runtime.InteropServices;
 namespace DeathFmTray;
 
 /// <summary>
-/// Ensures a Start Menu shortcut exists that carries the process AppUserModelID.
-/// Windows uses that shortcut to resolve a friendly display name for the media
-/// flyout / volume mixer; without it an unpackaged exe shows as "Unknown app".
-/// Completely best-effort — any failure is swallowed so the app always starts.
+/// Ensures a Start Menu shortcut exists that carries the process AppUserModelID
+/// and an explicit relaunch display name. Windows uses that shortcut to resolve
+/// a friendly name for the media flyout / volume mixer; without it an unpackaged
+/// exe shows as "Unknown app". Completely best-effort — any failure is swallowed
+/// so the app always starts.
 /// </summary>
 internal static class AumidShortcutHelper
 {
     // Must stay in sync with Program.AppUserModelId.
     private const string AppUserModelId = "TerraEclectic.DeathFmTray";
+    private const string DisplayName = "Death.FM Player";
     private const string ShortcutName = "Death.FM Player.lnk";
+
+    private static readonly Guid PkeyAppUserModel = new("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
+    private const int PidAppUserModelId = 5;                       // PKEY_AppUserModel_ID
+    private const int PidRelaunchDisplayNameResource = 4;          // PKEY_AppUserModel_RelaunchDisplayNameResource
 
     public static void EnsureStartMenuShortcut()
     {
@@ -31,11 +37,8 @@ internal static class AumidShortcutHelper
             Directory.CreateDirectory(programsDir);
             string shortcutPath = Path.Combine(programsDir, ShortcutName);
 
-            // 1. Create / refresh the basic .lnk via the reliable WScript.Shell COM object.
             CreateBasicShortcut(shortcutPath, exePath);
-
-            // 2. Stamp the AUMID property (separate step; failure here still leaves a usable shortcut).
-            TrySetAppUserModelId(shortcutPath, AppUserModelId);
+            TryStampShortcutProperties(shortcutPath, AppUserModelId, DisplayName);
         }
         catch
         {
@@ -45,7 +48,6 @@ internal static class AumidShortcutHelper
 
     private static void CreateBasicShortcut(string shortcutPath, string exePath)
     {
-        // WScript.Shell is the most reliable way to create a .lnk from managed code.
         Type? shellType = Type.GetTypeFromProgID("WScript.Shell");
         if (shellType is null)
             return;
@@ -70,6 +72,7 @@ internal static class AumidShortcutHelper
             shortcutType.InvokeMember("TargetPath", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { exePath });
             shortcutType.InvokeMember("WorkingDirectory", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { Path.GetDirectoryName(exePath)! });
             shortcutType.InvokeMember("IconLocation", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { exePath });
+            shortcutType.InvokeMember("Description", System.Reflection.BindingFlags.SetProperty, null, shortcut, new object[] { DisplayName });
             shortcutType.InvokeMember("Save", System.Reflection.BindingFlags.InvokeMethod, null, shortcut, null);
 
             Marshal.FinalReleaseComObject(shortcut);
@@ -80,7 +83,7 @@ internal static class AumidShortcutHelper
         }
     }
 
-    private static void TrySetAppUserModelId(string shortcutPath, string appId)
+    private static void TryStampShortcutProperties(string shortcutPath, string appId, string displayName)
     {
         try
         {
@@ -89,35 +92,35 @@ internal static class AumidShortcutHelper
             file.Load(shortcutPath, 2); // STGM_READWRITE
 
             var store = (IPropertyStore)link;
-            var key = new PropertyKey(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 5); // PKEY_AppUserModel_ID
 
-            IntPtr strPtr = Marshal.StringToCoTaskMemUni(appId);
-            try
-            {
-                var pv = new PropVariant { vt = 31, pointerValue = strPtr }; // VT_LPWSTR
-                int hr = store.SetValue(ref key, ref pv);
-                if (hr >= 0)
-                    hr = store.Commit();
-                if (hr < 0)
-                    return;
-            }
-            finally
-            {
-                Marshal.FreeCoTaskMem(strPtr);
-            }
+            // 1. AppUserModelID — groups the process with this shortcut.
+            SetStringProperty(store, new PropertyKey(PkeyAppUserModel, PidAppUserModelId), appId);
 
+            // 2. Explicit display name Windows can show even when AUMID lookup is fuzzy.
+            SetStringProperty(store, new PropertyKey(PkeyAppUserModel, PidRelaunchDisplayNameResource), displayName);
+
+            store.Commit();
             file.Save(shortcutPath, true);
         }
         catch
         {
-            // AUMID stamp failed — the plain shortcut is still better than nothing.
+            // Property stamp failed — the plain shortcut is still better than nothing.
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Minimal COM interop. Only the methods we actually call are declared,
-    // and they are in the correct vtable order so QI works.
-    // -------------------------------------------------------------------------
+    private static void SetStringProperty(IPropertyStore store, PropertyKey key, string value)
+    {
+        IntPtr strPtr = Marshal.StringToCoTaskMemUni(value);
+        try
+        {
+            var pv = new PropVariant { vt = 31, pointerValue = strPtr }; // VT_LPWSTR
+            store.SetValue(ref key, ref pv);
+        }
+        finally
+        {
+            Marshal.FreeCoTaskMem(strPtr);
+        }
+    }
 
     [ComImport]
     [Guid("00021401-0000-0000-C000-000000000046")]
@@ -169,7 +172,6 @@ internal static class AumidShortcutHelper
         public PropertyKey(Guid fmtid, int pid) { this.fmtid = fmtid; this.pid = pid; }
     }
 
-    // PROPVARIANT is 16 bytes on x64 (vt + reserved + pointer)
     [StructLayout(LayoutKind.Explicit, Size = 16)]
     private struct PropVariant
     {

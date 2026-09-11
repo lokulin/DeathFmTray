@@ -34,7 +34,22 @@ jobs:
           --self-contained false
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=embedded
+          -p:GenerateDocumentationFile=false
+          -p:CopyDebugSymbolFilesFromPackages=false
+          -p:CopyDocumentationFilesFromPackages=false
           -o publish
+
+      - name: Clean publish folder
+        shell: pwsh
+        run: |
+          # Strip anything that shouldn't ship (docs, symbols, leftover loose files).
+          Get-ChildItem publish -Include *.pdb,*.xml -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force
+          # WebView2Loader.dll is a native dependency — if PublishSingleFile left it
+          # as a sibling (older SDK behaviour), keep it; if it was embedded via
+          # IncludeNativeLibrariesForSelfExtract it won't appear here and that's fine.
+          Write-Host "Publish folder contents:"
+          Get-ChildItem publish | Format-Table Name, Length
 
       - name: Zip published output
         shell: pwsh
@@ -48,3 +63,4 @@ jobs:
         with:
           files: DeathFmTray-*.zip
           generate_release_notes: true
+          

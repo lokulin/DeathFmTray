@@ -43,7 +43,14 @@ generate `.vscode/launch.json` / `tasks.json` for you the first time).
 To produce a single portable .exe you can drop a shortcut to:
 
 ```powershell
-dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true
+dotnet publish DeathFmTray.csproj -c Release -r win-x64 --self-contained false `
+  -p:PublishSingleFile=true `
+  -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:DebugType=embedded `
+  -p:GenerateDocumentationFile=false `
+  -p:CopyDebugSymbolFilesFromPackages=false `
+  -p:CopyDocumentationFilesFromPackages=false `
+  -o publish
 ```
 
 (Drop `--self-contained false` and add `--self-contained true` instead if you
