@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- The 10.0.19041.0 TFM gives us the WinRT projections (Windows.Media.*) needed
+         later for System Media Transport Controls, without any extra package refs. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DeathFmTray</AssemblyName>
+    <RootNamespace>DeathFmTray</RootNamespace>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <!-- These flow into the exe's version resource (FileDescription/Product) -
+         Windows falls back to reading this for the volume mixer / media flyout
+         app name when it can't otherwise resolve a friendly name. -->
+    <AssemblyTitle>Death.FM Player</AssemblyTitle>
+    <Product>Death.FM Player</Product>
+    <Description>A Windows tray wrapper for the Death.FM web player</Description>
+    <Company>Terra Eclectic</Company>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Platforms>x64</Platforms>
+    <StartupObject>DeathFmTray.Program</StartupObject>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2739.15" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Ships the icons next to the exe so PlayerForm/TrayAppContext can load them at runtime. -->
+    <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,37 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+out/
+
+# VS Code
+.vs/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Rider / ReSharper
+.idea/
+*.sln.iml
+
+# User-specific files
+*.user
+*.userosscache
+*.suo
+
+# NuGet
+*.nupkg
+**/packages/*
+!**/packages/build/
+
+# Publish output
+publish/
+*.publish.xml
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Local app settings dropped by SettingsStore during dev/testing
+settings.json
