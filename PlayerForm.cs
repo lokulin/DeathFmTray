@@ -25,15 +25,13 @@ public sealed class PlayerForm : Form
 
         Text = "Death.FM Player";
 
-        // Fixed size — the death.fm player layout doesn't reflow well when the
-        // window is resized, so we lock both dimensions and remove the maximize
-        // button / size grips.
-        var size = new Size(
-            Math.Max(settings.WindowWidth, 1024),
-            Math.Max(settings.WindowHeight, 500));
+        // Fixed size matching the page's own .main-wrapper (1024×500).
+        // The death.fm player does not reflow, so we lock the client area to
+        // that exact size and remove the maximize button / size grips.
+        var size = new Size(1024, 500);
         MinimumSize = size;
         MaximumSize = size;
-        ClientSize = size; // sets the client area; Form will add chrome around it
+        ClientSize = size; // client area = content size; Form adds titlebar/borders
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
 
@@ -69,12 +67,20 @@ public sealed class PlayerForm : Form
     {
         try
         {
-            Icon = new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "app.ico"));
+            Icon = LoadEmbeddedIcon("app.ico");
         }
         catch
         {
-            // Missing/invalid icon file shouldn't stop the app from running.
+            // Missing/invalid icon resource shouldn't stop the app from running.
         }
+    }
+
+    private static Icon LoadEmbeddedIcon(string resourceName)
+    {
+        using Stream? stream = typeof(PlayerForm).Assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+            throw new InvalidOperationException($"Embedded resource '{resourceName}' not found.");
+        return new Icon(stream);
     }
 
     private async void PlayerForm_Load(object? sender, EventArgs e)

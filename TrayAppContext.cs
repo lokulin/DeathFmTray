@@ -55,7 +55,10 @@ public sealed class TrayAppContext : ApplicationContext
     {
         try
         {
-            return new Icon(Path.Combine(AppContext.BaseDirectory, "Assets", "tray.ico"));
+            using Stream? stream = typeof(TrayAppContext).Assembly.GetManifestResourceStream("tray.ico");
+            if (stream is null)
+                return SystemIcons.Application;
+            return new Icon(stream);
         }
         catch
         {

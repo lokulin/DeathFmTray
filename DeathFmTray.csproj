@@ -32,8 +32,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Ships the icons next to the exe so PlayerForm/TrayAppContext can load them at runtime. -->
-    <None Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Embed icons in the assembly so single-file publish doesn't need loose Assets\ files. -->
+    <EmbeddedResource Include="Assets\app.ico">
+      <LogicalName>app.ico</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Assets\tray.ico">
+      <LogicalName>tray.ico</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

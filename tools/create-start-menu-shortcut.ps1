@@ -104,7 +104,7 @@ public static class AumidShortcut
     public static void SetAppUserModelId(string shortcutPath, string appId)
     {
         var link = (IPersistFile)new ShellLink();
-        link.Load(shortcutPath, 2);
+        link.Load(shortcutPath, 2); // STGM_READWRITE - required for Commit() below to actually persist
 
         var store = (IPropertyStore)link;
         var key = new PropertyKey(new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"), 5); // PKEY_AppUserModel_ID
@@ -125,7 +125,12 @@ public static class AumidShortcut
 }
 "@
 
-[AumidShortcut]::SetAppUserModelId($shortcutPath, $AppId)
-
-Write-Host "Created '$shortcutPath' with AppUserModelID '$AppId'."
-Write-Host "If Windows doesn't pick up the new name immediately, sign out/in (or reboot)."
+try {
+    [AumidShortcut]::SetAppUserModelId($shortcutPath, $AppId)
+    Write-Host "Created '$shortcutPath' with AppUserModelID '$AppId'."
+    Write-Host "If Windows doesn't pick up the new name immediately, sign out/in (or reboot)."
+}
+catch {
+    Write-Error "Failed to set the AppUserModelID property: $($_.Exception.Message)"
+    exit 1
+}

@@ -15,8 +15,9 @@ cluttering your desktop.
 | `SettingsStore.cs` | Loads/saves user preferences as JSON in `%AppData%\DeathFmTray\settings.json`. |
 | `StartupManager.cs` | Adds/removes a "run at Windows startup" entry via the per-user registry Run key (no installer/admin rights needed). |
 | `NowPlayingService.cs` | Injects Media Session API wiring into the page so Windows' volume flyout/media controls show the current track, artist, and album art. |
+| `AumidShortcutHelper.cs` | Creates a Start Menu shortcut stamped with the process AUMID so the media flyout shows "Death.FM Player" instead of "Unknown app". |
 | `WindowChromeHelper.cs` | Applies a dark, theme-matched titlebar via DWM window attributes. |
-| `tools/create-start-menu-shortcut.ps1` | One-time script to fix the "Unknown app" label in the media flyout - see below. |
+| `tools/create-start-menu-shortcut.ps1` | Standalone PowerShell equivalent of the AUMID shortcut helper (optional; the app now does this itself). |
 | `Assets/app.ico`, `Assets/tray.ico` | Placeholder icons (a plain red-on-black "D" badge) - swap these for real artwork whenever you like, same filenames. |
 
 ## Prerequisites
@@ -108,32 +109,20 @@ but for an app with no installer, Windows still needs a Start Menu shortcut
 carrying that same AUMID as a file property before it has a friendly name to
 actually display. Without one, everything works except the label.
 
-Run `tools/create-start-menu-shortcut.ps1` once, pointing it at your built
-exe:
+**This is now handled automatically.** On every launch `AumidShortcutHelper`
+creates (or refreshes) a Start Menu shortcut under
+`%AppData%\Microsoft\Windows\Start Menu\Programs\Death.FM Player.lnk` and
+stamps the AUMID property onto it. No manual step is required.
 
-```powershell
-.\tools\create-start-menu-shortcut.ps1 -ExePath "C:\path\to\DeathFmTray.exe"
-```
+You can safely delete the shortcut from the Start Menu afterwards if you
+don't want it listed there - Windows caches the AUMID→name resolution.
 
-This creates a Start Menu shortcut with the AUMID property stamped onto it
-(using a small inline COM interop helper, since PowerShell's built-in
-`WScript.Shell` shortcut object can't set that property on its own). It only
-needs to be run once per machine/exe location - after that, Windows resolves
-the AUMID to this shortcut's name regardless of how the app is actually
-launched, and you can delete the shortcut from your Start Menu afterwards if
-you don't want it cluttering there (Windows caches the resolution).
+If the friendly name still doesn't appear immediately after the first run,
+sign out/in or reboot; Windows can be slow to invalidate its cache.
 
-If it doesn't take effect immediately, sign out/in or reboot - Windows can be
-slow to invalidate its AUMID→name cache.
-
-I wrote this as a standalone script rather than baking the shortcut-creation
-logic into the app itself: it relies on some fairly fiddly native COM
-interop (`IPropertyStore`/`PROPVARIANT` marshaling), and getting that wrong
-inside the shipped app risks a hard crash rather than just a script error you
-can safely re-run. I also haven't been able to test it on a live Windows
-machine myself, so treat it as best-effort - if it errors out or doesn't
-work, the app still functions fine, you'll just keep seeing "Unknown app" as
-a cosmetic issue.
+A standalone PowerShell version of the same logic remains in
+`tools/create-start-menu-shortcut.ps1` if you ever need to re-apply it by
+hand.
 
 ## Custom titlebar
 
