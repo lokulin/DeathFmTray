@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Text.Json;
@@ -25,6 +26,11 @@ public sealed class PlayerForm : Form
 
     // death.fm's chat module sends guests here (see OnNavigationStarting).
     private const string AccountPageUrlFragment = "modules.php?name=Your_Account";
+
+    // The one target="_blank" link we want WebView2 to keep handling itself
+    // as a small embedded popup (see OnNewWindowRequested) - everything else
+    // (album art, Amazon shop links) should open in the user's real browser.
+    private const string RatingPopupUrlFragment = "modules/Ratings/playing_rating.php";
 
     /// <summary>Raised whenever playback starts/stops/pauses - used by TrayAppContext to reflect state in the tray icon.</summary>
     public event Action<PlaybackState>? PlaybackStateChanged;
@@ -127,6 +133,7 @@ public sealed class PlayerForm : Form
 
             await _webView.EnsureCoreWebView2Async(env);
             _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+            _webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
 
             // Own SMTC session bound to this window, instead of relying on
             // WebView2/Chromium's navigator.mediaSession auto-bridging (which
@@ -197,13 +204,48 @@ public sealed class PlayerForm : Form
     // X-Frame-Options/CSP that would block being framed by itself.
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (!e.Uri.Contains(AccountPageUrlFragment, StringComparison.OrdinalIgnoreCase))
+        if (e.Uri.Contains(AccountPageUrlFragment, StringComparison.OrdinalIgnoreCase))
+        {
+            e.Cancel = true;
+            string urlJson = JsonSerializer.Serialize(e.Uri);
+            _ = _webView.CoreWebView2?.ExecuteScriptAsync($"({LoginOverlayScript})({urlJson});");
+            return;
+        }
+
+        // The album-rating popup (window.open from the Now Playing panel)
+        // refreshes the whole player from its window.opener after you rate,
+        // which reloads the <audio> element and interrupts playback. That's
+        // just this same page navigating to itself, so cancel it and run the
+        // page's own updateTrackData() instead - it already re-fetches
+        // np-rating-fg along with everything else on a timer, so this reuses
+        // the exact same refresh path the page already trusts.
+        if (string.Equals(e.Uri, _webView.CoreWebView2?.Source, StringComparison.OrdinalIgnoreCase))
+        {
+            e.Cancel = true;
+            _ = _webView.CoreWebView2?.ExecuteScriptAsync(
+                "if (typeof updateTrackData === 'function') { updateTrackData(); }");
+        }
+    }
+
+    // Album art and the Amazon shop links all use target="_blank", which
+    // WebView2 otherwise handles by opening its own embedded popup window -
+    // not what you want for "buy this on Amazon" links. Send those to the
+    // user's actual default browser instead; the one exception is the rating
+    // popup, which stays embedded since it's part of the app's own UI.
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        if (e.Uri.Contains(RatingPopupUrlFragment, StringComparison.OrdinalIgnoreCase))
             return;
 
-        e.Cancel = true;
-
-        string urlJson = JsonSerializer.Serialize(e.Uri);
-        _ = _webView.CoreWebView2?.ExecuteScriptAsync($"({LoginOverlayScript})({urlJson});");
+        e.Handled = true;
+        try
+        {
+            Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true });
+        }
+        catch
+        {
+            // Best-effort - nothing more useful to do if the shell can't launch a browser.
+        }
     }
 
     // Builds a centered modal-style overlay with a close button around an
@@ -233,12 +275,13 @@ function (url) {
         'color:#fff;border:none;font-size:14px;cursor:pointer;font-family:Verdana,sans-serif;';
     closeBtn.onclick = function () {
         overlay.remove();
-        // f.src = f.src is a no-op (same URL, browsers skip the reload) -
-        // contentWindow.reload() forces an actual refresh of just these two
-        // iframes so newly-logged-in state shows up, without touching the
-        // rest of the page (and so without interrupting playback).
+        // f.src = f.src is a no-op (same URL, browsers skip the reload), and
+        // contentWindow.location.reload() can still be served from Chromium's
+        // cache rather than actually re-checking login state. A genuinely
+        // different URL (cache-busted) guarantees a fresh request instead.
         document.querySelectorAll('.chat-view, .chat-input').forEach(function (f) {
-            try { f.contentWindow.location.reload(); } catch (e) { /* ignore */ }
+            var base = f.src.split('#')[0].split('?')[0];
+            f.src = base + '?_=' + Date.now();
         });
     };
 
