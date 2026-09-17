@@ -17,6 +17,7 @@ public sealed class PlayerForm : Form
     private readonly AppSettings _settings;
     private readonly NowPlayingService _nowPlaying;
     private bool _allowClose;
+    private Icon? _formIcon;
 
     public PlayerForm(AppSettings settings)
     {
@@ -67,7 +68,8 @@ public sealed class PlayerForm : Form
     {
         try
         {
-            Icon = LoadEmbeddedIcon("app.ico");
+            _formIcon = LoadEmbeddedIcon("app.ico");
+            Icon = _formIcon;
         }
         catch
         {
@@ -85,26 +87,43 @@ public sealed class PlayerForm : Form
 
     private async void PlayerForm_Load(object? sender, EventArgs e)
     {
-        // Keep WebView2's user-data folder under the user's AppData instead of
-        // next to the exe. The default (DeathFmTray.exe.WebView2) fails when the
-        // app is installed under Program Files where the user has no write access.
-        string userDataFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "DeathFmTray",
-            "WebView2");
+        try
+        {
+            // Keep WebView2's user-data folder under the user's AppData instead of
+            // next to the exe. The default (DeathFmTray.exe.WebView2) fails when the
+            // app is installed under Program Files where the user has no write access.
+            string userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DeathFmTray",
+                "WebView2");
 
-        var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
-            browserExecutableFolder: null,
-            userDataFolder: userDataFolder);
+            var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: userDataFolder);
 
-        await _webView.EnsureCoreWebView2Async(env);
+            await _webView.EnsureCoreWebView2Async(env);
 
-        // Registers the Media Session injection script before the first
-        // navigation so it's guaranteed to run on page load (and every
-        // reload thereafter) - see NowPlayingService.cs for what it does.
-        await _nowPlaying.StartAsync();
+            // Registers the Media Session injection script before the first
+            // navigation so it's guaranteed to run on page load (and every
+            // reload thereafter) - see NowPlayingService.cs for what it does.
+            await _nowPlaying.StartAsync();
 
-        _webView.CoreWebView2.Navigate(_settings.StationUrl);
+            _webView.CoreWebView2.Navigate(_settings.StationUrl);
+        }
+        catch (Exception ex)
+        {
+            // Most commonly: the WebView2 Runtime isn't installed. Surface a
+            // friendly message instead of letting an async void exception
+            // crash the app with an unhandled-exception dialog.
+            MessageBox.Show(
+                "Death.FM Player couldn't start its browser component (WebView2).\n\n" +
+                "If you don't have the WebView2 Runtime installed, get it from:\n" +
+                "https://developer.microsoft.com/microsoft-edge/webview2/\n\n" +
+                $"Details: {ex.Message}",
+                "Death.FM Player",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 
     private void PlayerForm_Resize(object? sender, EventArgs e)
@@ -134,8 +153,6 @@ public sealed class PlayerForm : Form
     {
         if (WindowState == FormWindowState.Normal)
         {
-            _settings.WindowWidth = Width;
-            _settings.WindowHeight = Height;
             _settings.WindowX = Location.X;
             _settings.WindowY = Location.Y;
         }
@@ -169,5 +186,14 @@ public sealed class PlayerForm : Form
     {
         _allowClose = true;
         Close();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _formIcon?.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }

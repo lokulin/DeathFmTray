@@ -17,15 +17,17 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly AppSettings _settings;
     private readonly PlayerForm _playerForm;
     private readonly NotifyIcon _trayIcon;
+    private readonly Icon _trayIconImage;
 
     public TrayAppContext()
     {
         _settings = SettingsStore.Load();
         _playerForm = new PlayerForm(_settings);
 
+        _trayIconImage = LoadTrayIcon();
         _trayIcon = new NotifyIcon
         {
-            Icon = LoadTrayIcon(),
+            Icon = _trayIconImage,
             Text = "Death.FM Player",
             ContextMenuStrip = BuildContextMenu(),
             Visible = true
@@ -51,6 +53,8 @@ public sealed class TrayAppContext : ApplicationContext
         return launchedMinimized || _settings.StartMinimizedToTray;
     }
 
+    // SystemIcons.Application is a shared system icon and must never be disposed;
+    // only an icon actually loaded from our embedded resource is ours to dispose.
     private static Icon LoadTrayIcon()
     {
         try
@@ -85,8 +89,6 @@ public sealed class TrayAppContext : ApplicationContext
         startWithWindowsItem.Click += (_, _) =>
         {
             StartupManager.SetEnabled(startWithWindowsItem.Checked);
-            _settings.StartWithWindows = startWithWindowsItem.Checked;
-            SettingsStore.Save(_settings);
         };
         menu.Items.Add(startWithWindowsItem);
 
@@ -126,6 +128,10 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
+        if (!ReferenceEquals(_trayIconImage, SystemIcons.Application))
+        {
+            _trayIconImage.Dispose();
+        }
         _playerForm.ForceClose();
         ExitThread();
     }

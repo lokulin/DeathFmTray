@@ -7,12 +7,9 @@ namespace DeathFmTray;
 /// <summary>Everything about the app's state that should survive a restart.</summary>
 public sealed class AppSettings
 {
-    public bool StartWithWindows { get; set; }
     public bool StartMinimizedToTray { get; set; }
     public bool MinimizeToTrayOnClose { get; set; } = true;
 
-    public int WindowWidth { get; set; } = 1040;
-    public int WindowHeight { get; set; } = 560;
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }
 
