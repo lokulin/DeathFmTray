@@ -78,6 +78,14 @@ public sealed class PlayerForm : Form
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
 
+        // The tray icon is the only representation of this app that should
+        // ever show - no separate taskbar button while the window's open,
+        // on top of already hiding on minimize/close. WinForms achieves "no
+        // taskbar button" by also excluding the window from Alt-Tab, which
+        // is fine here since the tray icon (double-click or its menu) is
+        // always available to bring it back.
+        ShowInTaskbar = false;
+
         if (settings.WindowX is int x && settings.WindowY is int y && IsOnScreen(x, y))
         {
             StartPosition = FormStartPosition.Manual;

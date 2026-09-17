@@ -85,6 +85,12 @@ will just be a lot bigger.)
 Double-clicking the tray icon restores the window. The tray icon itself gets
 a small green dot overlaid on it while a stream is actively playing.
 
+The player window never gets its own taskbar button (`ShowInTaskbar = false`
+in `PlayerForm.cs`) - the tray icon is the app's only representation while
+it's not the focused window. That also excludes it from Alt-Tab, which is
+how WinForms implements "no taskbar button"; the tray icon is always there
+to bring it back regardless.
+
 ## Windows media controls (volume flyout / Now Playing)
 
 An earlier version of this used the browser's
