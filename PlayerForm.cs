@@ -3,6 +3,7 @@ using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
+using Windows.Media;
 
 namespace DeathFmTray;
 
@@ -18,6 +19,7 @@ public sealed class PlayerForm : Form
     private readonly NowPlayingService _nowPlaying;
     private bool _allowClose;
     private Icon? _formIcon;
+    private SmtcService? _smtc;
 
     public PlayerForm(AppSettings settings)
     {
@@ -97,13 +99,36 @@ public sealed class PlayerForm : Form
                 "DeathFmTray",
                 "WebView2");
 
+            // Chromium auto-registers its own SMTC "Now Playing" session for any
+            // page playing audio - completely independent of navigator.mediaSession
+            // usage - using a generic fallback title and msedgewebview2.exe's own
+            // identity. That session ends up competing with (and, per testing,
+            // winning over) the one SmtcService registers under our own AUMID,
+            // which is why the volume flyout still showed "Unknown app" even after
+            // wiring up our own SMTC session correctly. Disabling this Chromium
+            // feature stops it from creating that second session at all.
+            var options = new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions
+            {
+                AdditionalBrowserArguments = "--disable-features=HardwareMediaKeyHandling"
+            };
+
             var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
                 browserExecutableFolder: null,
-                userDataFolder: userDataFolder);
+                userDataFolder: userDataFolder,
+                options: options);
 
             await _webView.EnsureCoreWebView2Async(env);
 
-            // Registers the Media Session injection script before the first
+            // Own SMTC session bound to this window, instead of relying on
+            // WebView2/Chromium's navigator.mediaSession auto-bridging (which
+            // registers under msedgewebview2.exe's identity, not ours - see
+            // SmtcService for the full story).
+            _smtc = new SmtcService(Handle);
+            _smtc.ButtonPressed += OnSmtcButtonPressed;
+            _nowPlaying.MetadataChanged += OnNowPlayingMetadataChanged;
+            _nowPlaying.PlaybackStateChanged += OnNowPlayingPlaybackStateChanged;
+
+            // Registers the now-playing bridge script before the first
             // navigation so it's guaranteed to run on page load (and every
             // reload thereafter) - see NowPlayingService.cs for what it does.
             await _nowPlaying.StartAsync();
@@ -124,6 +149,44 @@ public sealed class PlayerForm : Form
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
+    }
+
+    private void OnNowPlayingMetadataChanged(NowPlayingMetadata metadata)
+    {
+        _smtc?.UpdateMetadata(metadata.Title, metadata.Artist, metadata.Album, metadata.ArtUrl);
+    }
+
+    private void OnNowPlayingPlaybackStateChanged(PlaybackState state)
+    {
+        _smtc?.SetPlaybackStatus(state switch
+        {
+            PlaybackState.Playing => MediaPlaybackStatus.Playing,
+            PlaybackState.Paused => MediaPlaybackStatus.Paused,
+            PlaybackState.Waiting => MediaPlaybackStatus.Changing,
+            _ => MediaPlaybackStatus.Stopped,
+        });
+    }
+
+    // Raised on a background thread by Windows, not the UI thread - hop back
+    // onto it before touching the WebView2 control.
+    private void OnSmtcButtonPressed(SystemMediaTransportControlsButton button)
+    {
+        if (IsDisposed)
+            return;
+
+        BeginInvoke(new Action(() =>
+        {
+            switch (button)
+            {
+                case SystemMediaTransportControlsButton.Play:
+                    _nowPlaying.TriggerPlay();
+                    break;
+                case SystemMediaTransportControlsButton.Pause:
+                case SystemMediaTransportControlsButton.Stop:
+                    _nowPlaying.TriggerStop();
+                    break;
+            }
+        }));
     }
 
     private void PlayerForm_Resize(object? sender, EventArgs e)
@@ -193,6 +256,7 @@ public sealed class PlayerForm : Form
         if (disposing)
         {
             _formIcon?.Dispose();
+            _smtc?.Dispose();
         }
         base.Dispose(disposing);
     }

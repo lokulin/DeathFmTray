@@ -19,8 +19,8 @@
     <Product>Death.FM Player</Product>
     <Description>A Windows tray wrapper for the Death.FM web player</Description>
     <Company>Terra Eclectic</Company>
-    <Version>1.0.2</Version>
-    <FileVersion>1.0.2.0</FileVersion>
+    <Version>1.0.3</Version>
+    <FileVersion>1.0.3.0</FileVersion>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <Platforms>x64</Platforms>
     <StartupObject>DeathFmTray.Program</StartupObject>

@@ -14,11 +14,12 @@ cluttering your desktop.
 | `PlayerForm.cs` | The window itself - hosts the WebView2 control pointed at the player page, handles minimize/close-to-tray. |
 | `SettingsStore.cs` | Loads/saves user preferences as JSON in `%AppData%\DeathFmTray\settings.json`. |
 | `StartupManager.cs` | Adds/removes a "run at Windows startup" entry via the per-user registry Run key (no installer/admin rights needed). |
-| `NowPlayingService.cs` | Injects Media Session API wiring into the page so Windows' volume flyout/media controls show the current track, artist, and album art. |
+| `NowPlayingService.cs` | Scrapes the page's now-playing DOM/audio element and bridges it to C# via `postMessage`, instead of `navigator.mediaSession`. |
+| `SmtcService.cs` | Drives Windows' System Media Transport Controls (volume flyout / Now Playing) directly from our own process, fed by `NowPlayingService`. |
 | `AumidShortcutHelper.cs` | Creates a Start Menu shortcut stamped with the process AUMID so the media flyout shows "Death.FM Player" instead of "Unknown app". |
 | `WindowChromeHelper.cs` | Applies a dark, theme-matched titlebar via DWM window attributes. |
 | `tools/create-start-menu-shortcut.ps1` | Standalone PowerShell equivalent of the AUMID shortcut helper (optional; the app now does this itself). |
-| `Assets/app.ico`, `Assets/tray.ico` | Placeholder icons (a plain red-on-black "D" badge) - swap these for real artwork whenever you like, same filenames. |
+| `Assets/app.ico`, `Assets/tray.ico` | App and tray icons, embedded into the assembly at build time. |
 
 ## Prerequisites
 
@@ -72,62 +73,75 @@ will just be a lot bigger.)
 
 Double-clicking the tray icon also restores the window.
 
-## Replacing the placeholder icons
-
-`Assets/app.ico` and `Assets/tray.ico` are simple generated placeholders.
-Replace them with real `.ico` files of the same name (multi-resolution .ico
-files - e.g. 16/32/48/256px - work best so Windows can pick the right size for
-the taskbar, alt-tab, and tray). No code changes needed; both are loaded by
-filename at runtime and `app.ico` also doubles as the compiled exe's icon via
-`<ApplicationIcon>` in the `.csproj`.
-
 ## Windows media controls (volume flyout / Now Playing)
 
-Implemented via `NowPlayingService.cs` - and it turns out to be simpler than
-raw WinRT SMTC code. WebView2 is Chromium under the hood, and Chromium
-already publishes whatever the page sets via the browser's
+An earlier version of this used the browser's
 [Media Session API](https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API)
-(`navigator.mediaSession`) straight through to Windows' System Media
-Transport Controls - no manual `Windows.Media.*` wiring needed on the C# side.
+(`navigator.mediaSession`) and let WebView2/Chromium auto-bridge it to
+Windows' System Media Transport Controls (SMTC). That turned out to be a
+dead end: WebView2 runs the actual browser engine in a separate
+`msedgewebview2.exe` child process, and *that* process - not ours - is what
+registers the SMTC session, under its own identity. No AUMID/shortcut work on
+`DeathFmTray.exe` itself can fix that, and even worse, Chromium auto-creates
+a *second*, generic SMTC session for any page playing audio - using the page
+title as a fallback - regardless of whether the page touches
+`navigator.mediaSession` at all. Windows would show that second, wrongly-
+attributed session instead of ours.
 
-The death.fm page itself never calls that API, so `NowPlayingService` injects
-a small script (`AddScriptToExecuteOnDocumentCreatedAsync`) that:
+The actual fix, in two parts:
 
-- Mirrors `#np-track` / `#np-artist` / `#np-album` / `#now-playing-art` into
-  `navigator.mediaSession.metadata` (title, artist, album, artwork) whenever
-  they change, which is what feeds the title/artist text and album art shown
-  in Windows' volume flyout and media overlay.
-- Wires SMTC's Play/Pause/Stop actions back to the page's own
-  `#btn-play` / `#btn-stop` buttons. Death.FM is a live stream with no real
-  "pause" position, so Pause is mapped to the same action as Stop.
-- Reflects the `<audio id="audio-engine">` element's native `playing` /
-  `pause` / `waiting` events into `navigator.mediaSession.playbackState`.
+- **`NowPlayingService.cs`** scrapes `#np-track` / `#np-artist` / `#np-album`
+  / `#now-playing-art` and the `<audio id="audio-engine">` element's
+  `playing`/`pause`/`waiting` events, and forwards them to C# via
+  `window.chrome.webview.postMessage(...)` - instead of setting
+  `navigator.mediaSession` at all.
+- **`SmtcService.cs`** takes that data and drives
+  `Windows.Media.SystemMediaTransportControls` directly from our own process,
+  via the classic `ISystemMediaTransportControlsInterop.GetForWindow` desktop
+  interop entry point (there's no managed API for this - `GetForCurrentView()`
+  only works for UWP apps with a `CoreWindow`). Since our own process already
+  carries the correct AUMID (see below), the resulting SMTC session correctly
+  shows up as "Death.FM Player".
+- `PlayerForm.cs` also passes
+  `--disable-features=HardwareMediaKeyHandling` as a WebView2 browser
+  argument, which stops Chromium from creating its own competing SMTC session
+  in the first place.
 
-If Windows still shows a generic name instead of "Death.FM Player": `Program.cs`
-sets an explicit AppUserModelID (`SetCurrentProcessExplicitAppUserModelID`)
-before the WebView2 environment is created, and the `.csproj` sets the exe's
-`Product`/`AssemblyTitle` metadata as a fallback - but for an unpackaged .exe
-that's necessary and *not* sufficient. See "Fixing 'Unknown app'" below.
+SMTC's `GetForWindow` interop is notoriously undocumented in managed .NET;
+getting it working took a few rounds of live debugging (an
+`AccessViolationException` from an assumed vtable slot that turned out to be
+wrong - the factory interface actually derives from `IInspectable`, not
+`IUnknown` - then an `InvalidCastException` from requesting the wrong
+interface IID). If you ever need to touch that file again, `Marshal.
+QueryInterface` against a live pointer is a much safer way to check vtable
+assumptions than guessing and re-running.
 
 ## Fixing "Unknown app" in the volume mixer / media flyout
 
-Setting the AUMID at runtime tells Windows how to *group* the app's windows,
-but for an app with no installer, Windows still needs a Start Menu shortcut
-carrying that same AUMID as a file property before it has a friendly name to
-actually display. Without one, everything works except the label.
+Two things have to both be true for Windows to show "Death.FM Player" instead
+of "Unknown app" or a raw AUMID string:
 
-**This is now handled automatically.** On every launch `AumidShortcutHelper`
-creates (or refreshes) a Start Menu shortcut under
-`%AppData%\Microsoft\Windows\Start Menu\Programs\Death.FM Player.lnk` and
-stamps the AUMID property onto it. No manual step is required.
+1. **The process needs an AUMID**, so `Program.cs` calls
+   `SetCurrentProcessExplicitAppUserModelID` before the WebView2 environment
+   is created (and `SmtcService` piggybacks on that same identity when it
+   registers with SMTC).
+2. **Windows needs a way to resolve that AUMID to a friendly name.** For an
+   app with no installer/MSIX package, that means a Start Menu shortcut
+   carrying the same AUMID as a file property. `AumidShortcutHelper` creates
+   (or refreshes) one automatically on every launch, at
+   `%AppData%\Microsoft\Windows\Start Menu\Programs\Death.FM Player.lnk` -
+   no manual step required, and you can safely delete it from the Start Menu
+   afterwards if you don't want it listed there (Windows caches the
+   AUMID→name resolution once it's been resolved once).
 
-You can safely delete the shortcut from the Start Menu afterwards if you
-don't want it listed there - Windows caches the AUMID→name resolution.
+If the friendly name doesn't appear immediately after the first run, sign
+out/in or reboot; Windows can be slow to invalidate its cache. If you ever
+change the AUMID constant (in `Program.cs`, kept in sync with
+`AumidShortcutHelper.cs`), bump the string (e.g. add a `.v2` suffix) rather
+than reusing the old one - Windows can otherwise keep an old "Unknown app"
+resolution cached against it indefinitely.
 
-If the friendly name still doesn't appear immediately after the first run,
-sign out/in or reboot; Windows can be slow to invalidate its cache.
-
-A standalone PowerShell version of the same logic remains in
+A standalone PowerShell version of the shortcut-creation logic remains in
 `tools/create-start-menu-shortcut.ps1` if you ever need to re-apply it by
 hand.
 
