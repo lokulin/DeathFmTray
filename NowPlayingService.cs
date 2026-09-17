@@ -49,6 +49,9 @@ public sealed class NowPlayingService : IDisposable
     /// <summary>Raised once per page load with the station's "--theme-bg" CSS custom property, as a hex color string.</summary>
     public event Action<string>? ThemeChanged;
 
+    /// <summary>Raised when the chat login/register overlay is closed - see PlayerForm.OnLoginOverlayClosed.</summary>
+    public event Action? LoginOverlayClosed;
+
     public NowPlayingService(WebView2 webView)
     {
         _webView = webView;
@@ -127,6 +130,10 @@ public sealed class NowPlayingService : IDisposable
                     string? bg = root.TryGetProperty("bg", out JsonElement bgEl) ? bgEl.GetString() : null;
                     if (!string.IsNullOrEmpty(bg))
                         ThemeChanged?.Invoke(bg);
+                    break;
+
+                case "closeLogin":
+                    LoginOverlayClosed?.Invoke();
                     break;
             }
         }

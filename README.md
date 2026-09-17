@@ -14,11 +14,13 @@ cluttering your desktop.
 | `PlayerForm.cs` | The window itself - hosts the WebView2 control pointed at the player page, handles minimize/close-to-tray. |
 | `SettingsStore.cs` | Loads/saves user preferences as JSON in `%AppData%\DeathFmTray\settings.json`. |
 | `StartupManager.cs` | Adds/removes a "run at Windows startup" entry via the per-user registry Run key (no installer/admin rights needed). |
-| `NowPlayingService.cs` | Scrapes the page's now-playing DOM/audio element and bridges it to C# via `postMessage`, instead of `navigator.mediaSession`. |
+| `NowPlayingService.cs` | Scrapes the page's now-playing DOM/audio element and bridges it to C# via `postMessage`, instead of `navigator.mediaSession`. Also runs a watchdog that reloads the page if playback gets stuck buffering. |
 | `SmtcService.cs` | Drives Windows' System Media Transport Controls (volume flyout / Now Playing) directly from our own process, fed by `NowPlayingService`. |
+| `LastFmScrobbler.cs` | Scrobbles now-playing tracks to Last.fm, fed by the same now-playing data. |
 | `AumidShortcutHelper.cs` | Creates a Start Menu shortcut stamped with the process AUMID so the media flyout shows "Death.FM Player" instead of "Unknown app". |
-| `WindowChromeHelper.cs` | Applies a dark, theme-matched titlebar via DWM window attributes. |
+| `WindowChromeHelper.cs` | Applies a dark titlebar via DWM window attributes, recolored per-station by `PlayerForm`. |
 | `tools/create-start-menu-shortcut.ps1` | Standalone PowerShell equivalent of the AUMID shortcut helper (optional; the app now does this itself). |
+| `tools/clear-webview-cache.ps1` | Stops the app and wipes its WebView2 profile (cookies/cache/storage) - handy for re-testing login/chat without a real logout. |
 | `Assets/app.ico`, `Assets/tray.ico` | App and tray icons, embedded into the assembly at build time. |
 
 ## Prerequisites
@@ -69,9 +71,12 @@ will just be a lot bigger.)
   - **Start Minimized to Tray** - skip showing the window on launch
   - **Minimize to Tray on Close** - untick if you'd rather the X button
     actually close the app
+  - **Connect Last.fm...** / **Disconnect Last.fm (username)** - see
+    [Last.fm scrobbling](#lastfm-scrobbling) below
   - **Exit**
 
-Double-clicking the tray icon also restores the window.
+Double-clicking the tray icon also restores the window. The tray icon itself
+gets a small green dot overlaid on it while a stream is actively playing.
 
 ## Windows media controls (volume flyout / Now Playing)
 
@@ -145,16 +150,91 @@ A standalone PowerShell version of the shortcut-creation logic remains in
 `tools/create-start-menu-shortcut.ps1` if you ever need to re-apply it by
 hand.
 
+## Chat login, ratings, and external links
+
+A few bits of `PlayerForm.cs` exist purely to work around how the embedded
+death.fm page behaves inside a WebView2 shell instead of a normal browser tab:
+
+- **Chat login/register.** The chat tab's guest login/register links do
+  `window.top.location.href = '/modules.php?name=Your_Account'`, which
+  replaces the *entire* player with death.fm's full site and no way back.
+  `PlayerForm` intercepts that specific navigation
+  (`CoreWebView2.NavigationStarting`) and shows it as an in-page overlay
+  `<iframe>` instead - same WebView2, same cookie jar, and it doesn't touch
+  the fixed 1050×550 layout. **Known limitation:** closing the overlay is
+  supposed to refresh the chat panel to reflect the new login, but doesn't
+  reliably pick it up yet, even though the session cookie is confirmed set
+  correctly (checked the WebView2 profile's cookie database directly) - a
+  full page reload does show it correctly, so `OnLoginOverlayClosed` does
+  that instead (auto-resuming playback afterward so it isn't disruptive),
+  but the underlying "why doesn't the chat iframe alone pick it up" question
+  is still open. Parked as a known issue rather than chased further for now.
+- **Album rating popup.** Rating an album (`window.open` from the Now
+  Playing panel) used to refresh the *entire* player from the popup's
+  `window.opener` after you rated, reloading the `<audio>` element and
+  interrupting playback. That's just the same page navigating to itself, so
+  it's cancelled and the page's own `updateTrackData()` is called instead -
+  it already re-fetches the rating bar along with everything else on a
+  timer.
+- **External links.** Album art and the Amazon shop links use
+  `target="_blank"`, which WebView2 otherwise handles by opening its own
+  embedded popup window - fine for the rating popup, not what you want for
+  "buy this on Amazon." `CoreWebView2.NewWindowRequested` redirects anything
+  other than the rating popup to the OS default browser via
+  `Process.Start(..., UseShellExecute = true)`.
+
+## Last.fm scrobbling
+
+`LastFmScrobbler.cs` talks to Last.fm's Audioscrobbler API (plain REST/JSON
+over HTTPS - no native interop needed, unlike `SmtcService`). To use it:
+
+1. Register a free API application at
+   [last.fm/api/account/create](https://www.last.fm/api/account/create)
+   (any name; leave the callback URL blank) to get an **API key** and
+   **shared secret**.
+2. Add them to `%AppData%\DeathFmTray\settings.json`:
+
+   ```json
+   "LastFmApiKey": "...",
+   "LastFmApiSecret": "..."
+   ```
+
+   (This file is per-user and never committed to the repo - if you're
+   building this for other people rather than just yourself, each person
+   needs their own key rather than one baked into the source, since the
+   repo is public.)
+3. Right-click the tray icon → **Connect Last.fm...**. This opens Last.fm's
+   authorization page in your default browser (desktop-app auth flow:
+   `auth.getToken` → you approve in the browser → `auth.getSession`); once
+   you confirm you've approved it, the resulting session key is saved and
+   doesn't expire until you disconnect or revoke it from Last.fm's side.
+
+Scrobbling itself is fed by `PlayerForm`, not `NowPlayingService` directly,
+because the page's now-playing display updates on a timer regardless of
+whether you've actually pressed Play - only forwarding track changes while
+genuinely playing avoids scrobbling tracks you never actually heard. Since
+death.fm is a live stream with no track-length metadata, "has this track
+played long enough to scrobble" is approximated by elapsed wall-clock time
+since the track was first seen (Last.fm's own guidance is roughly half the
+track's length or 4 minutes, whichever is shorter, and only for tracks over
+30 seconds - 30 seconds of elapsed time is used here as a simple proxy for
+that, given real durations aren't available).
+
 ## Custom titlebar
 
-`WindowChromeHelper.cs` sets a dark, theme-matched titlebar via DWM window
-attributes (`DWMWA_CAPTION_COLOR`/`DWMWA_TEXT_COLOR`), applied in
-`PlayerForm`'s constructor once the window handle exists. On Windows 11 22H2+
-you get an exact color match to death.fm's near-black palette; on older
-Windows 10/11 builds that don't support custom caption colors, it falls back
-to Windows' generic dark titlebar (`DWMWA_USE_IMMERSIVE_DARK_MODE`) instead -
-still dark, just not an exact color match. Both calls silently no-op on
-anything older than Windows 10 1809, so this is safe to leave in regardless
+`WindowChromeHelper.cs` sets a dark titlebar via DWM window attributes
+(`DWMWA_CAPTION_COLOR`/`DWMWA_TEXT_COLOR`), applied once the window handle
+exists and re-applied by `PlayerForm.OnThemeChanged` whenever the page
+reports a new `--theme-bg` CSS value - each station
+(`?station=80s/afm/dfm/efm/sst`) bakes in its own color server-side, and
+switching stations is a full page navigation, so the titlebar ends up
+matching whichever station is currently loaded rather than always showing
+death.fm's own near-black/red. On Windows 11 22H2+ you get an exact color
+match; on older Windows 10/11 builds that don't support custom caption
+colors, it falls back to Windows' generic dark titlebar
+(`DWMWA_USE_IMMERSIVE_DARK_MODE`) instead - still dark, just not an exact
+color match. Both calls silently no-op on anything older than Windows 10
+1809, so this is safe to leave in regardless
 of target OS. Adjust the colors passed to `ApplyDarkTitleBar` in
 `PlayerForm.cs` if you want something other than the current near-black/white
 combo.

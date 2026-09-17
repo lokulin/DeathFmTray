@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -20,9 +21,16 @@ public sealed class PlayerForm : Form
     private readonly WebView2 _webView = new();
     private readonly AppSettings _settings;
     private readonly NowPlayingService _nowPlaying;
+    private readonly LastFmScrobbler _lastFm;
     private bool _allowClose;
     private Icon? _formIcon;
     private SmtcService? _smtc;
+    private bool _isPlaying;
+    private bool _resumeAfterLoginReload;
+    private NowPlayingMetadata? _lastMetadata;
+
+    /// <summary>Raised after a Last.fm connect/disconnect - used by TrayAppContext to refresh its menu item.</summary>
+    public event Action? LastFmConnectionChanged;
 
     // death.fm's chat module sends guests here (see OnNavigationStarting).
     private const string AccountPageUrlFragment = "modules.php?name=Your_Account";
@@ -39,6 +47,7 @@ public sealed class PlayerForm : Form
     {
         _settings = settings;
         _nowPlaying = new NowPlayingService(_webView);
+        _lastFm = new LastFmScrobbler(settings);
 
         Text = "Death.FM Player";
 
@@ -144,6 +153,7 @@ public sealed class PlayerForm : Form
             _nowPlaying.MetadataChanged += OnNowPlayingMetadataChanged;
             _nowPlaying.PlaybackStateChanged += OnNowPlayingPlaybackStateChanged;
             _nowPlaying.ThemeChanged += OnThemeChanged;
+            _nowPlaying.LoginOverlayClosed += OnLoginOverlayClosed;
 
             // Registers the now-playing bridge script before the first
             // navigation so it's guaranteed to run on page load (and every
@@ -171,6 +181,14 @@ public sealed class PlayerForm : Form
     private void OnNowPlayingMetadataChanged(NowPlayingMetadata metadata)
     {
         _smtc?.UpdateMetadata(metadata.Title, metadata.Artist, metadata.Album, metadata.ArtUrl);
+        _lastMetadata = metadata;
+
+        // The page's now-playing display updates on a timer regardless of
+        // whether the user has actually pressed Play, so only feed the
+        // scrobbler while genuinely playing - otherwise it'd scrobble
+        // tracks the user never actually listened to.
+        if (_isPlaying)
+            _lastFm.OnTrackChanged(metadata);
     }
 
     // Each station (?station=80s/afm/dfm/efm/sst) bakes in its own
@@ -275,14 +293,16 @@ function (url) {
         'color:#fff;border:none;font-size:14px;cursor:pointer;font-family:Verdana,sans-serif;';
     closeBtn.onclick = function () {
         overlay.remove();
-        // f.src = f.src is a no-op (same URL, browsers skip the reload), and
-        // contentWindow.location.reload() can still be served from Chromium's
-        // cache rather than actually re-checking login state. A genuinely
-        // different URL (cache-busted) guarantees a fresh request instead.
-        document.querySelectorAll('.chat-view, .chat-input').forEach(function (f) {
-            var base = f.src.split('#')[0].split('?')[0];
-            f.src = base + '?_=' + Date.now();
-        });
+        // Reloading just the chat iframes (tried both contentWindow.reload()
+        // and a cache-busted src) never picked up freshly-logged-in state,
+        // even though the login cookie is confirmed set correctly - so hand
+        // off to C# to do a real page reload instead (see
+        // PlayerForm.OnLoginOverlayClosed), which auto-resumes playback
+        // afterward so it doesn't feel like an interruption.
+        // (Not the 'post' helper from NowPlayingService's injected script -
+        // this script runs in its own separate scope via ExecuteScriptAsync,
+        // so that closure isn't reachable from here.)
+        try { window.chrome.webview.postMessage({ type: 'closeLogin' }); } catch (e) { /* ignore */ }
     };
 
     var iframe = document.createElement('iframe');
@@ -297,6 +317,8 @@ function (url) {
 
     private void OnNowPlayingPlaybackStateChanged(PlaybackState state)
     {
+        bool wasPlaying = _isPlaying;
+        _isPlaying = state == PlaybackState.Playing;
         _smtc?.SetPlaybackStatus(state switch
         {
             PlaybackState.Playing => MediaPlaybackStatus.Playing,
@@ -304,7 +326,49 @@ function (url) {
             PlaybackState.Waiting => MediaPlaybackStatus.Changing,
             _ => MediaPlaybackStatus.Stopped,
         });
+        if (wasPlaying && !_isPlaying)
+        {
+            _lastFm.OnPlaybackStopped();
+        }
+        else if (!wasPlaying && _isPlaying && _lastMetadata is NowPlayingMetadata current)
+        {
+            // The now-playing display polls independently of play state and
+            // dedupes by track identity, so if the current track's metadata
+            // was already captured before Play was pressed, no new metadata
+            // event will ever fire for it - feed it in directly here instead
+            // of waiting for the next track change.
+            _lastFm.OnTrackChanged(current);
+        }
         PlaybackStateChanged?.Invoke(state);
+    }
+
+    // The chat overlay's close button posts here instead of us being able to
+    // refresh just the chat iframes - iframe.contentWindow.reload() and a
+    // cache-busted src reassignment were both tried and neither picked up a
+    // freshly-logged-in session, even though the login cookie is confirmed
+    // set correctly (checked the WebView2 profile's cookie database
+    // directly). A real page reload does reflect it, so do that, but resume
+    // playback automatically afterward so it doesn't feel like the
+    // interruption this whole feature was built to avoid.
+    private void OnLoginOverlayClosed()
+    {
+        _resumeAfterLoginReload = _isPlaying;
+        _webView.CoreWebView2.NavigationCompleted += OnNavigationCompletedAfterLoginReload;
+        _webView.CoreWebView2.Reload();
+    }
+
+    private async void OnNavigationCompletedAfterLoginReload(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        _webView.CoreWebView2.NavigationCompleted -= OnNavigationCompletedAfterLoginReload;
+        if (!_resumeAfterLoginReload)
+            return;
+
+        _resumeAfterLoginReload = false;
+
+        // Give the page's own script and our injected bridge a moment to
+        // finish wiring up the fresh #btn-play element before clicking it.
+        await Task.Delay(1000);
+        _nowPlaying.TriggerPlay();
     }
 
     // Raised on a background thread by Windows, not the UI thread - hop back
@@ -391,6 +455,73 @@ function (url) {
         Close();
     }
 
+    public bool IsLastFmConfigured => _lastFm.IsConfigured;
+    public bool IsLastFmAuthorized => _lastFm.IsAuthorized;
+    public string? LastFmUsername => _settings.LastFmUsername;
+
+    /// <summary>
+    /// Runs Last.fm's "desktop application" auth flow: get a token, send the
+    /// user to authorize it in their real browser, then (once they confirm
+    /// they've done so) exchange it for a session key that doesn't expire
+    /// until revoked.
+    /// </summary>
+    public async Task ConnectLastFmAsync()
+    {
+        if (!_lastFm.IsConfigured)
+        {
+            MessageBox.Show(
+                "Add a Last.fm API key and secret to settings.json first " +
+                "(get one free at last.fm/api/account/create), then try again.",
+                "Death.FM Player",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+            return;
+        }
+
+        try
+        {
+            string token = await _lastFm.GetAuthTokenAsync();
+            Process.Start(new ProcessStartInfo(_lastFm.BuildAuthorizeUrl(token)) { UseShellExecute = true });
+
+            DialogResult result = MessageBox.Show(
+                "A browser window opened so you can authorize Death.FM Player on Last.fm.\n\n" +
+                "Once you've approved it there, click OK to finish connecting.",
+                "Connect Last.fm",
+                MessageBoxButtons.OKCancel,
+                MessageBoxIcon.Information);
+            if (result != DialogResult.OK)
+                return;
+
+            (string sessionKey, string username) = await _lastFm.CompleteAuthAsync(token);
+            _settings.LastFmSessionKey = sessionKey;
+            _settings.LastFmUsername = username;
+            SettingsStore.Save(_settings);
+            LastFmConnectionChanged?.Invoke();
+
+            MessageBox.Show(
+                $"Connected to Last.fm as {username}.",
+                "Death.FM Player",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Couldn't connect to Last.fm.\n\nDetails: {ex.Message}",
+                "Death.FM Player",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
+    }
+
+    public void DisconnectLastFm()
+    {
+        _settings.LastFmSessionKey = null;
+        _settings.LastFmUsername = null;
+        SettingsStore.Save(_settings);
+        LastFmConnectionChanged?.Invoke();
+    }
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -398,6 +529,7 @@ function (url) {
             _formIcon?.Dispose();
             _smtc?.Dispose();
             _nowPlaying.Dispose();
+            _lastFm.Dispose();
         }
         base.Dispose(disposing);
     }

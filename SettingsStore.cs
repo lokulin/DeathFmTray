@@ -16,6 +16,17 @@ public sealed class AppSettings
     // Change the "station" query param here if you ever want to point this
     // same app at one of death.fm's sister stations (80s.fm, adagio.fm, etc).
     public string StationUrl { get; set; } = "https://death.fm/player.php?station=dfm";
+
+    // Last.fm scrobbling. LastFmApiKey/LastFmApiSecret identify this app to
+    // Last.fm's API - register a free one at last.fm/api/account/create and
+    // paste them in here (not committed to source, since this file lives
+    // under %AppData%, well away from the git repo). LastFmSessionKey/
+    // LastFmUsername are filled in automatically by the "Connect Last.fm..."
+    // tray menu flow once you've authorized the app in your browser.
+    public string? LastFmApiKey { get; set; }
+    public string? LastFmApiSecret { get; set; }
+    public string? LastFmSessionKey { get; set; }
+    public string? LastFmUsername { get; set; }
 }
 
 /// <summary>Reads/writes AppSettings as JSON under %AppData%\DeathFmTray\settings.json.</summary>

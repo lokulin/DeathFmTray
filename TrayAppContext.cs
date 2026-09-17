@@ -160,9 +160,43 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add(minimizeToTrayItem);
 
         menu.Items.Add(new ToolStripSeparator());
+
+        var lastFmItem = new ToolStripMenuItem();
+        UpdateLastFmMenuItem(lastFmItem);
+        lastFmItem.Click += async (_, _) =>
+        {
+            if (_playerForm.IsLastFmAuthorized)
+                _playerForm.DisconnectLastFm();
+            else
+                await _playerForm.ConnectLastFmAsync();
+            UpdateLastFmMenuItem(lastFmItem);
+        };
+        _playerForm.LastFmConnectionChanged += () => UpdateLastFmMenuItem(lastFmItem);
+        menu.Items.Add(lastFmItem);
+
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
         return menu;
+    }
+
+    private void UpdateLastFmMenuItem(ToolStripMenuItem item)
+    {
+        if (_playerForm.IsLastFmAuthorized)
+        {
+            item.Text = $"Disconnect Last.fm ({_playerForm.LastFmUsername})";
+            item.Enabled = true;
+        }
+        else if (_playerForm.IsLastFmConfigured)
+        {
+            item.Text = "Connect Last.fm...";
+            item.Enabled = true;
+        }
+        else
+        {
+            item.Text = "Last.fm (add an API key to settings.json)";
+            item.Enabled = false;
+        }
     }
 
     private void ShowPlayer() => _playerForm.ShowAndActivate();
