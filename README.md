@@ -23,7 +23,7 @@ cluttering your desktop.
 
 ## Prerequisites
 
-- **.NET 8 SDK** ([dotnet.microsoft.com](https://dotnet.microsoft.com/download))
+- **.NET 10 SDK** ([dotnet.microsoft.com](https://dotnet.microsoft.com/download))
 - **VS Code** with the C# Dev Kit extension (or plain `dotnet` CLI - both work)
 - **WebView2 Runtime** - already preinstalled on Windows 11 and most up-to-date
   Windows 10 machines. If it's missing, Windows will prompt for the
@@ -55,7 +55,7 @@ dotnet publish DeathFmTray.csproj -c Release -r win-x64 --self-contained false `
 ```
 
 (Drop `--self-contained false` and add `--self-contained true` instead if you
-want it to run on a machine without the .NET 8 runtime installed - the output
+want it to run on a machine without the .NET 10 runtime installed - the output
 will just be a lot bigger.)
 
 ## Using it

@@ -1,7 +1,9 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Text.Json;
 using System.Windows.Forms;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Windows.Media;
 
@@ -20,6 +22,12 @@ public sealed class PlayerForm : Form
     private bool _allowClose;
     private Icon? _formIcon;
     private SmtcService? _smtc;
+
+    // death.fm's chat module sends guests here (see OnNavigationStarting).
+    private const string AccountPageUrlFragment = "modules.php?name=Your_Account";
+
+    /// <summary>Raised whenever playback starts/stops/pauses - used by TrayAppContext to reflect state in the tray icon.</summary>
+    public event Action<PlaybackState>? PlaybackStateChanged;
 
     public PlayerForm(AppSettings settings)
     {
@@ -107,17 +115,18 @@ public sealed class PlayerForm : Form
             // which is why the volume flyout still showed "Unknown app" even after
             // wiring up our own SMTC session correctly. Disabling this Chromium
             // feature stops it from creating that second session at all.
-            var options = new Microsoft.Web.WebView2.Core.CoreWebView2EnvironmentOptions
+            var options = new CoreWebView2EnvironmentOptions
             {
                 AdditionalBrowserArguments = "--disable-features=HardwareMediaKeyHandling"
             };
 
-            var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
+            var env = await CoreWebView2Environment.CreateAsync(
                 browserExecutableFolder: null,
                 userDataFolder: userDataFolder,
                 options: options);
 
             await _webView.EnsureCoreWebView2Async(env);
+            _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
 
             // Own SMTC session bound to this window, instead of relying on
             // WebView2/Chromium's navigator.mediaSession auto-bridging (which
@@ -127,6 +136,7 @@ public sealed class PlayerForm : Form
             _smtc.ButtonPressed += OnSmtcButtonPressed;
             _nowPlaying.MetadataChanged += OnNowPlayingMetadataChanged;
             _nowPlaying.PlaybackStateChanged += OnNowPlayingPlaybackStateChanged;
+            _nowPlaying.ThemeChanged += OnThemeChanged;
 
             // Registers the now-playing bridge script before the first
             // navigation so it's guaranteed to run on page load (and every
@@ -156,6 +166,92 @@ public sealed class PlayerForm : Form
         _smtc?.UpdateMetadata(metadata.Title, metadata.Artist, metadata.Album, metadata.ArtUrl);
     }
 
+    // Each station (?station=80s/afm/dfm/efm/sst) bakes in its own
+    // --theme-bg CSS value server-side; switching stations is a full page
+    // navigation, so re-applying the titlebar color per load keeps it
+    // matching whichever station is currently loaded instead of always
+    // showing death.fm's own near-black/red.
+    private void OnThemeChanged(string hexColor)
+    {
+        try
+        {
+            Color themeBg = ColorTranslator.FromHtml(hexColor);
+            WindowChromeHelper.ApplyDarkTitleBar(this, themeBg, Color.White);
+        }
+        catch (Exception)
+        {
+            // Malformed color from the page - keep whatever's already applied.
+        }
+    }
+
+    // The chat tab's Login/Register links do
+    // window.top.location.href = '/modules.php?name=Your_Account', replacing
+    // the whole player with death.fm's full site and no way back. Intercept
+    // that specific top-level navigation and show it as an in-page overlay
+    // instead - tried a separate modal Form hosting its own WebView2 first,
+    // but that hit a "Class not registered" COM error (a second WebView2
+    // control sharing an environment, hosted via ShowDialog's nested message
+    // loop, is a known-fragile combination). An overlay iframe injected into
+    // the already-working page needs none of that: same WebView2, same
+    // profile, cookies just work, and the login page sends no
+    // X-Frame-Options/CSP that would block being framed by itself.
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (!e.Uri.Contains(AccountPageUrlFragment, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        e.Cancel = true;
+
+        string urlJson = JsonSerializer.Serialize(e.Uri);
+        _ = _webView.CoreWebView2?.ExecuteScriptAsync($"({LoginOverlayScript})({urlJson});");
+    }
+
+    // Builds a centered modal-style overlay with a close button around an
+    // <iframe> pointed at the given URL, and re-syncs the chat iframes (in
+    // case login state changed) when the overlay is closed.
+    private const string LoginOverlayScript = @"
+function (url) {
+    var existing = document.getElementById('__deathFmTrayLoginOverlay');
+    if (existing) existing.remove();
+
+    var overlay = document.createElement('div');
+    overlay.id = '__deathFmTrayLoginOverlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);' +
+        'z-index:2147483647;display:flex;align-items:center;justify-content:center;';
+
+    // death.fm's account page is an old-school, non-responsive table layout
+    // (no stable 'just the login form' selector to isolate it), so this is
+    // sized to fit the page's natural width rather than trying to trim it -
+    // narrower and it just clips the same content instead of reflowing it.
+    var panel = document.createElement('div');
+    panel.style.cssText = 'position:relative;width:960px;height:500px;max-width:95vw;' +
+        'max-height:88vh;background:#111;border:1px solid #333;box-shadow:0 0 30px rgba(0,0,0,0.8);';
+
+    var closeBtn = document.createElement('button');
+    closeBtn.textContent = '✕ Close';
+    closeBtn.style.cssText = 'position:absolute;top:-28px;right:0;background:transparent;' +
+        'color:#fff;border:none;font-size:14px;cursor:pointer;font-family:Verdana,sans-serif;';
+    closeBtn.onclick = function () {
+        overlay.remove();
+        // f.src = f.src is a no-op (same URL, browsers skip the reload) -
+        // contentWindow.reload() forces an actual refresh of just these two
+        // iframes so newly-logged-in state shows up, without touching the
+        // rest of the page (and so without interrupting playback).
+        document.querySelectorAll('.chat-view, .chat-input').forEach(function (f) {
+            try { f.contentWindow.location.reload(); } catch (e) { /* ignore */ }
+        });
+    };
+
+    var iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:#fff;';
+
+    panel.appendChild(closeBtn);
+    panel.appendChild(iframe);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+}";
+
     private void OnNowPlayingPlaybackStateChanged(PlaybackState state)
     {
         _smtc?.SetPlaybackStatus(state switch
@@ -165,6 +261,7 @@ public sealed class PlayerForm : Form
             PlaybackState.Waiting => MediaPlaybackStatus.Changing,
             _ => MediaPlaybackStatus.Stopped,
         });
+        PlaybackStateChanged?.Invoke(state);
     }
 
     // Raised on a background thread by Windows, not the UI thread - hop back
@@ -257,6 +354,7 @@ public sealed class PlayerForm : Form
         {
             _formIcon?.Dispose();
             _smtc?.Dispose();
+            _nowPlaying.Dispose();
         }
         base.Dispose(disposing);
     }

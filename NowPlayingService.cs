@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Timer = System.Windows.Forms.Timer;
 
 namespace DeathFmTray;
 
@@ -26,18 +27,51 @@ public readonly record struct NowPlayingMetadata(string Title, string Artist, st
 /// volume flyout no matter what AppUserModelID we set on our own process.
 /// Instead we keep Chromium out of it entirely and drive SMTC ourselves from
 /// DeathFmTray.exe via <see cref="SmtcService"/>, fed by the messages this
-/// class receives.
+/// class receives. Also runs a watchdog that force-reloads the page if
+/// playback stays stuck buffering for too long.
 /// </summary>
-public sealed class NowPlayingService
+public sealed class NowPlayingService : IDisposable
 {
+    // death.fm occasionally gets stuck buffering (the 'waiting' event fires
+    // and playback never resumes) after long uptimes, sometimes surviving a
+    // manual play/stop toggle. Force a full page reload if it stays stuck
+    // longer than this - a plain WebView2 Navigate/Reload is a more reliable
+    // recovery than relying on the page's own reconnect logic.
+    private static readonly TimeSpan StallThreshold = TimeSpan.FromSeconds(30);
+
     private readonly WebView2 _webView;
+    private readonly Timer _stallWatchdog = new() { Interval = 5000 };
+    private DateTime? _waitingSince;
 
     public event Action<NowPlayingMetadata>? MetadataChanged;
     public event Action<PlaybackState>? PlaybackStateChanged;
 
+    /// <summary>Raised once per page load with the station's "--theme-bg" CSS custom property, as a hex color string.</summary>
+    public event Action<string>? ThemeChanged;
+
     public NowPlayingService(WebView2 webView)
     {
         _webView = webView;
+        _stallWatchdog.Tick += OnStallWatchdogTick;
+        _stallWatchdog.Start();
+    }
+
+    public void Dispose()
+    {
+        _stallWatchdog.Tick -= OnStallWatchdogTick;
+        _stallWatchdog.Dispose();
+    }
+
+    private void OnStallWatchdogTick(object? sender, EventArgs e)
+    {
+        if (_waitingSince is DateTime since && DateTime.UtcNow - since >= StallThreshold)
+        {
+            // Reset rather than stop watching - if the reload doesn't fix it,
+            // we want to try again after another StallThreshold rather than
+            // waiting forever.
+            _waitingSince = null;
+            _webView.CoreWebView2?.Reload();
+        }
     }
 
     /// <summary>
@@ -79,6 +113,7 @@ public sealed class NowPlayingService
 
                 case "playbackState":
                     string state = root.GetProperty("state").GetString() ?? "";
+                    _waitingSince = state == "waiting" ? (_waitingSince ?? DateTime.UtcNow) : null;
                     PlaybackStateChanged?.Invoke(state switch
                     {
                         "playing" => PlaybackState.Playing,
@@ -86,6 +121,12 @@ public sealed class NowPlayingService
                         "waiting" => PlaybackState.Waiting,
                         _ => PlaybackState.Stopped,
                     });
+                    break;
+
+                case "theme":
+                    string? bg = root.TryGetProperty("bg", out JsonElement bgEl) ? bgEl.GetString() : null;
+                    if (!string.IsNullOrEmpty(bg))
+                        ThemeChanged?.Invoke(bg);
                     break;
             }
         }
@@ -148,23 +189,40 @@ public sealed class NowPlayingService
 
     function wirePlaybackState() {
         var audio = document.getElementById('audio-engine');
-        if (!audio) { setTimeout(wirePlaybackState, 500); return; }
+        var stopBtn = document.getElementById('btn-stop');
+        if (!audio || !stopBtn) { setTimeout(wirePlaybackState, 500); return; }
 
         audio.addEventListener('playing', function () {
             post({ type: 'playbackState', state: 'playing' });
             updateMetadata();
         });
-        audio.addEventListener('pause', function () {
-            post({ type: 'playbackState', state: 'paused' });
-        });
         audio.addEventListener('waiting', function () {
             post({ type: 'playbackState', state: 'waiting' });
         });
+
+        // Not audio.addEventListener('pause', ...): the page's own Play
+        // button handler also calls audio.pause() as part of resetting the
+        // element before reconnecting, so a bare 'pause' event fires on every
+        // (re)connect too, not just on a real stop - it can't be trusted to
+        // mean 'stopped'. Tying directly to the Stop button click instead is
+        // unambiguous.
+        stopBtn.addEventListener('click', function () {
+            post({ type: 'playbackState', state: 'stopped' });
+        });
+    }
+
+    function postTheme() {
+        // Each station (?station=80s/afm/dfm/efm/sst) is its own full page
+        // load with these CSS custom properties baked in server-side with
+        // different values - read once per load rather than polling.
+        var bg = getComputedStyle(document.documentElement).getPropertyValue('--theme-bg').trim();
+        if (bg) post({ type: 'theme', bg: bg });
     }
 
     function setup() {
         wirePlaybackState();
         updateMetadata();
+        postTheme();
 
         // The page refetches now-playing info every 30s and on track change;
         // a light poll here keeps our metadata in sync without needing to
