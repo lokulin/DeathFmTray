@@ -17,6 +17,7 @@ cluttering your desktop.
 | `NowPlayingService.cs` | Scrapes the page's now-playing DOM/audio element and bridges it to C# via `postMessage`, instead of `navigator.mediaSession`. Also runs a watchdog that reloads the page if playback gets stuck buffering. |
 | `SmtcService.cs` | Drives Windows' System Media Transport Controls (volume flyout / Now Playing) directly from our own process, fed by `NowPlayingService`. |
 | `LastFmScrobbler.cs` | Scrobbles now-playing tracks to Last.fm, fed by the same now-playing data. |
+| `DiscordPresenceService.cs` | Shows the current track as a Discord Rich Presence status, fed by the same now-playing data. |
 | `AumidShortcutHelper.cs` | Creates a Start Menu shortcut stamped with the process AUMID so the media flyout shows "Death.FM Player" instead of "Unknown app". |
 | `WindowChromeHelper.cs` | Applies a dark titlebar via DWM window attributes, recolored per-station by `PlayerForm`. |
 | `tools/create-start-menu-shortcut.ps1` | Standalone PowerShell equivalent of the AUMID shortcut helper (optional; the app now does this itself). |
@@ -218,7 +219,47 @@ played long enough to scrobble" is approximated by elapsed wall-clock time
 since the track was first seen (Last.fm's own guidance is roughly half the
 track's length or 4 minutes, whichever is shorter, and only for tracks over
 30 seconds - 30 seconds of elapsed time is used here as a simple proxy for
-that, given real durations aren't available).
+that, given real durations aren't available). Brief rebuffering doesn't
+reset that timer - only an actual Stop does - since this stream rebuffers
+often enough that treating every blip as a stop meant a track could play
+for minutes total, across a few short interruptions, and never accumulate
+enough continuous time to ever qualify.
+
+## Discord Rich Presence
+
+`DiscordPresenceService.cs` shows the current track as your Discord status,
+via Discord's local RPC (a named pipe the desktop client listens on - the
+[DiscordRichPresence](https://github.com/Lachee/discord-rpc-csharp) library
+handles connecting/reconnecting to it in the background; nothing shows up
+unless Discord is actually running). To use it:
+
+1. Create a free application at
+   [discord.com/developers/applications](https://discord.com/developers/applications)
+   (any name) and copy its **Application ID** from the General Information
+   page.
+2. Add it to `%AppData%\DeathFmTray\settings.json`:
+
+   ```json
+   "DiscordClientId": "..."
+   ```
+
+   Same reasoning as Last.fm's key: per-user, not committed to source, since
+   each person needs their own registered application.
+3. Optional: under **Rich Presence → Art Assets** in that same application,
+   upload a fallback image and add its asset key as
+   `"DiscordDefaultImageKey"` in settings.json - shown when a track has no
+   album art of its own yet. Album art (when available) is passed directly
+   as an external image URL, which Discord accepts without needing to be
+   pre-uploaded.
+
+No further "connect" step is needed beyond that (unlike Last.fm) - it just
+needs your own Discord client already running locally, no OAuth/user consent
+involved. **Note:** this always shows as "Playing Death.FM Player" rather
+than "Listening to ..." - the "Listening to Spotify" verb is a first-party
+integration Discord built specifically for Spotify, not something exposed
+through the general RPC protocol third-party apps use. Track/artist details
+only show in the full profile popout (click your own name/avatar in
+Discord), not the compact member-list entry.
 
 ## Custom titlebar
 

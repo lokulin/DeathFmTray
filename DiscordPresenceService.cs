@@ -59,13 +59,16 @@ public sealed class DiscordPresenceService : IDisposable
         };
 
         // Discord accepts a direct external image URL here (not just a
-        // pre-uploaded asset key) - falls back to no image if that turns
-        // out not to render for some client versions, which is harmless.
-        if (!string.IsNullOrEmpty(metadata.ArtUrl))
+        // pre-uploaded asset key) - falls back to whatever default image key
+        // is configured (uploaded under Rich Presence -> Art Assets in the
+        // Discord Developer Portal for your own application) when a track
+        // has no album art of its own yet.
+        string? imageKey = !string.IsNullOrEmpty(metadata.ArtUrl) ? metadata.ArtUrl : _settings.DiscordDefaultImageKey;
+        if (!string.IsNullOrEmpty(imageKey))
         {
             presence.Assets = new Assets
             {
-                LargeImageKey = metadata.ArtUrl,
+                LargeImageKey = imageKey,
                 LargeImageText = "Death.FM",
             };
         }

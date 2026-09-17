@@ -32,7 +32,11 @@ public sealed class AppSettings
     // discord.com/developers/applications to get a Client ID - no OAuth/user
     // consent needed beyond that, unlike Last.fm, since this only talks to
     // your own already-running Discord desktop client over a local pipe.
+    // DiscordDefaultImageKey is optional: the asset key of an image uploaded
+    // under Rich Presence -> Art Assets for that application, shown when the
+    // current track has no album art of its own yet.
     public string? DiscordClientId { get; set; }
+    public string? DiscordDefaultImageKey { get; set; }
 }
 
 /// <summary>Reads/writes AppSettings as JSON under %AppData%\DeathFmTray\settings.json.</summary>
