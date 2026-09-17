@@ -22,6 +22,7 @@ public sealed class PlayerForm : Form
     private readonly AppSettings _settings;
     private readonly NowPlayingService _nowPlaying;
     private readonly LastFmScrobbler _lastFm;
+    private readonly DiscordPresenceService _discord;
     private bool _allowClose;
     private Icon? _formIcon;
     private SmtcService? _smtc;
@@ -48,6 +49,8 @@ public sealed class PlayerForm : Form
         _settings = settings;
         _nowPlaying = new NowPlayingService(_webView);
         _lastFm = new LastFmScrobbler(settings);
+        _discord = new DiscordPresenceService(settings);
+        _discord.Start();
 
         Text = "Death.FM Player";
 
@@ -185,10 +188,13 @@ public sealed class PlayerForm : Form
 
         // The page's now-playing display updates on a timer regardless of
         // whether the user has actually pressed Play, so only feed the
-        // scrobbler while genuinely playing - otherwise it'd scrobble
+        // scrobbler/presence while genuinely playing - otherwise they'd show
         // tracks the user never actually listened to.
         if (_isPlaying)
+        {
             _lastFm.OnTrackChanged(metadata);
+            _discord.OnTrackChanged(metadata);
+        }
     }
 
     // Each station (?station=80s/afm/dfm/efm/sst) bakes in its own
@@ -326,9 +332,18 @@ function (url) {
             PlaybackState.Waiting => MediaPlaybackStatus.Changing,
             _ => MediaPlaybackStatus.Stopped,
         });
-        if (wasPlaying && !_isPlaying)
+        if (state == PlaybackState.Stopped && wasPlaying)
         {
+            // Deliberately state == Stopped, not "any transition away from
+            // Playing": Waiting (a brief rebuffer, which this stream does
+            // fairly often) was being treated the same as a real stop here,
+            // which wiped the tracked current-track/start-time on every
+            // buffering blip - resetting the elapsed-time-towards-30-seconds
+            // counter to zero each time, so a track could play for minutes
+            // total (with interruptions) and never actually reach the
+            // scrobble threshold. Only a real Stop should finalize it.
             _lastFm.OnPlaybackStopped();
+            _discord.OnPlaybackStopped();
         }
         else if (!wasPlaying && _isPlaying && _lastMetadata is NowPlayingMetadata current)
         {
@@ -338,6 +353,7 @@ function (url) {
             // event will ever fire for it - feed it in directly here instead
             // of waiting for the next track change.
             _lastFm.OnTrackChanged(current);
+            _discord.OnTrackChanged(current);
         }
         PlaybackStateChanged?.Invoke(state);
     }
@@ -530,6 +546,7 @@ function (url) {
             _smtc?.Dispose();
             _nowPlaying.Dispose();
             _lastFm.Dispose();
+            _discord.Dispose();
         }
         base.Dispose(disposing);
     }

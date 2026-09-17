@@ -27,6 +27,12 @@ public sealed class AppSettings
     public string? LastFmApiSecret { get; set; }
     public string? LastFmSessionKey { get; set; }
     public string? LastFmUsername { get; set; }
+
+    // Discord Rich Presence. Register a free application at
+    // discord.com/developers/applications to get a Client ID - no OAuth/user
+    // consent needed beyond that, unlike Last.fm, since this only talks to
+    // your own already-running Discord desktop client over a local pipe.
+    public string? DiscordClientId { get; set; }
 }
 
 /// <summary>Reads/writes AppSettings as JSON under %AppData%\DeathFmTray\settings.json.</summary>
