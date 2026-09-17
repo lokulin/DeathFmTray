@@ -30,8 +30,22 @@ public sealed class PlayerForm : Form
     private bool _resumeAfterLoginReload;
     private NowPlayingMetadata? _lastMetadata;
 
-    /// <summary>Raised after a Last.fm connect/disconnect - used by TrayAppContext to refresh its menu item.</summary>
-    public event Action? LastFmConnectionChanged;
+    /// <summary>Raised when Exit is chosen from the titlebar's system menu - TrayAppContext owns actually quitting.</summary>
+    public event Action? ExitRequested;
+
+    // Custom system menu command IDs (the menu from clicking the titlebar's
+    // app icon, right-clicking the titlebar, or Alt+Space) - a second way to
+    // reach the tray icon's most useful actions. Per the WM_SYSCOMMAND docs,
+    // custom IDs must be below 0xF000 (reserved for Windows' own commands)
+    // and Windows may use the low 4 bits internally, so these are kept at
+    // round multiples of 0x10.
+    private const int CmdSettings = 0x1000;
+    private const int CmdStartWithWindows = 0x1010;
+    private const int CmdStartMinimized = 0x1020;
+    private const int CmdMinimizeToTrayOnClose = 0x1030;
+    private const int CmdExit = 0x1050;
+    private const int WM_SYSCOMMAND = 0x0112;
+    private const int WM_INITMENU = 0x0116;
 
     // death.fm's chat module sends guests here (see OnNavigationStarting).
     private const string AccountPageUrlFragment = "modules.php?name=Your_Account";
@@ -83,6 +97,7 @@ public sealed class PlayerForm : Form
             this,
             captionColor: Color.FromArgb(0x22, 0x00, 0x00),
             textColor: Color.White);
+        HandleCreated += (_, _) => BuildSystemMenu();
 
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
@@ -471,7 +486,6 @@ function (url) {
         Close();
     }
 
-    public bool IsLastFmConfigured => _lastFm.IsConfigured;
     public bool IsLastFmAuthorized => _lastFm.IsAuthorized;
     public string? LastFmUsername => _settings.LastFmUsername;
 
@@ -486,7 +500,7 @@ function (url) {
         if (!_lastFm.IsConfigured)
         {
             MessageBox.Show(
-                "Add a Last.fm API key and secret to settings.json first " +
+                "Add a Last.fm API key and secret in Settings first " +
                 "(get one free at last.fm/api/account/create), then try again.",
                 "Death.FM Player",
                 MessageBoxButtons.OK,
@@ -512,7 +526,6 @@ function (url) {
             _settings.LastFmSessionKey = sessionKey;
             _settings.LastFmUsername = username;
             SettingsStore.Save(_settings);
-            LastFmConnectionChanged?.Invoke();
 
             MessageBox.Show(
                 $"Connected to Last.fm as {username}.",
@@ -535,7 +548,79 @@ function (url) {
         _settings.LastFmSessionKey = null;
         _settings.LastFmUsername = null;
         SettingsStore.Save(_settings);
-        LastFmConnectionChanged?.Invoke();
+    }
+
+    /// <summary>Re-opens the Discord RPC connection - used by the settings dialog after the Client ID is changed.</summary>
+    public void RestartDiscordPresence() => _discord.Restart();
+
+    private void BuildSystemMenu()
+    {
+        SystemMenuHelper.AddSeparator(Handle);
+        SystemMenuHelper.AddItem(Handle, CmdSettings, "Settings...");
+        SystemMenuHelper.AddItem(Handle, CmdStartWithWindows, "Start with Windows");
+        SystemMenuHelper.AddItem(Handle, CmdStartMinimized, "Start Minimized to Tray");
+        SystemMenuHelper.AddItem(Handle, CmdMinimizeToTrayOnClose, "Minimize to Tray on Close");
+        SystemMenuHelper.AddSeparator(Handle);
+        SystemMenuHelper.AddItem(Handle, CmdExit, "Exit");
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        // Refresh checkmarks/text just before the system menu is actually
+        // shown, rather than trying to keep this menu and the tray's
+        // ContextMenuStrip in sync with each other via events - simpler, and
+        // correct regardless of which menu was used to change something last.
+        if (m.Msg == WM_INITMENU)
+        {
+            SystemMenuHelper.SetChecked(Handle, CmdStartWithWindows, StartupManager.IsEnabled());
+            SystemMenuHelper.SetChecked(Handle, CmdStartMinimized, _settings.StartMinimizedToTray);
+            SystemMenuHelper.SetChecked(Handle, CmdMinimizeToTrayOnClose, _settings.MinimizeToTrayOnClose);
+        }
+        else if (m.Msg == WM_SYSCOMMAND)
+        {
+            // Windows may set the low 4 bits of the command ID itself, so
+            // mask them off before comparing (the same reason the IDs above
+            // are round multiples of 0x10).
+            int cmd = (int)m.WParam & 0xFFF0;
+            if (HandleSystemMenuCommand(cmd))
+                return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    private bool HandleSystemMenuCommand(int cmd)
+    {
+        switch (cmd)
+        {
+            case CmdSettings:
+                using (var settingsForm = new SettingsForm(_settings, this))
+                    settingsForm.ShowDialog(this);
+                return true;
+
+            case CmdStartWithWindows:
+                bool startWithWindows = !StartupManager.IsEnabled();
+                StartupManager.SetEnabled(startWithWindows);
+                return true;
+
+            case CmdStartMinimized:
+                _settings.StartMinimizedToTray = !_settings.StartMinimizedToTray;
+                SettingsStore.Save(_settings);
+                return true;
+
+            case CmdMinimizeToTrayOnClose:
+                _settings.MinimizeToTrayOnClose = !_settings.MinimizeToTrayOnClose;
+                SettingsStore.Save(_settings);
+                return true;
+
+
+            case CmdExit:
+                ExitRequested?.Invoke();
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     protected override void Dispose(bool disposing)

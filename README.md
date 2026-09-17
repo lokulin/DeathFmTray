@@ -18,8 +18,10 @@ cluttering your desktop.
 | `SmtcService.cs` | Drives Windows' System Media Transport Controls (volume flyout / Now Playing) directly from our own process, fed by `NowPlayingService`. |
 | `LastFmScrobbler.cs` | Scrobbles now-playing tracks to Last.fm, fed by the same now-playing data. |
 | `DiscordPresenceService.cs` | Shows the current track as a Discord Rich Presence status, fed by the same now-playing data. |
+| `SettingsForm.cs` | Editor for the Last.fm/Discord API credentials - the only settings that don't already have a tray/system menu checkbox. |
 | `AumidShortcutHelper.cs` | Creates a Start Menu shortcut stamped with the process AUMID so the media flyout shows "Death.FM Player" instead of "Unknown app". |
 | `WindowChromeHelper.cs` | Applies a dark titlebar via DWM window attributes, recolored per-station by `PlayerForm`. |
+| `SystemMenuHelper.cs` | Appends custom items to a window's native system menu (the titlebar's app-icon menu). |
 | `tools/create-start-menu-shortcut.ps1` | Standalone PowerShell equivalent of the AUMID shortcut helper (optional; the app now does this itself). |
 | `tools/clear-webview-cache.ps1` | Stops the app and wipes its WebView2 profile (cookies/cache/storage) - handy for re-testing login/chat without a real logout. |
 | `Assets/app.ico`, `Assets/tray.ico` | App and tray icons, embedded into the assembly at build time. |
@@ -65,19 +67,23 @@ will just be a lot bigger.)
 
 - Launching the app opens the player window and drops an icon in the tray.
 - Closing the window (the X button) minimizes it to the tray rather than
-  quitting - use the tray icon's right-click menu → **Exit** to actually quit.
-- Right-click the tray icon for:
-  - **Show Player** - restore/focus the window
+  quitting - use **Exit** (see below) to actually quit.
+- The same menu is available two ways - whichever's closer to hand:
+  - Right-click the tray icon, or
+  - Click the app icon at the top-left of the player window's titlebar (or
+    right-click the titlebar, or press Alt+Space) - this is Windows' native
+    "system menu", with a few extra items appended (`SystemMenuHelper.cs`).
+- Both offer:
+  - **Show Player** (tray only) - restore/focus the window
+  - **Settings...** - Last.fm/Discord API credentials; see below
   - **Start with Windows** - toggles a registry Run-key entry
   - **Start Minimized to Tray** - skip showing the window on launch
   - **Minimize to Tray on Close** - untick if you'd rather the X button
     actually close the app
-  - **Connect Last.fm...** / **Disconnect Last.fm (username)** - see
-    [Last.fm scrobbling](#lastfm-scrobbling) below
   - **Exit**
 
-Double-clicking the tray icon also restores the window. The tray icon itself
-gets a small green dot overlaid on it while a stream is actively playing.
+Double-clicking the tray icon restores the window. The tray icon itself gets
+a small green dot overlaid on it while a stream is actively playing.
 
 ## Windows media controls (volume flyout / Now Playing)
 
@@ -193,22 +199,16 @@ over HTTPS - no native interop needed, unlike `SmtcService`). To use it:
    [last.fm/api/account/create](https://www.last.fm/api/account/create)
    (any name; leave the callback URL blank) to get an **API key** and
    **shared secret**.
-2. Add them to `%AppData%\DeathFmTray\settings.json`:
-
-   ```json
-   "LastFmApiKey": "...",
-   "LastFmApiSecret": "..."
-   ```
-
-   (This file is per-user and never committed to the repo - if you're
-   building this for other people rather than just yourself, each person
-   needs their own key rather than one baked into the source, since the
-   repo is public.)
-3. Right-click the tray icon → **Connect Last.fm...**. This opens Last.fm's
-   authorization page in your default browser (desktop-app auth flow:
-   `auth.getToken` → you approve in the browser → `auth.getSession`); once
-   you confirm you've approved it, the resulting session key is saved and
-   doesn't expire until you disconnect or revoke it from Last.fm's side.
+2. Open **Settings...** (tray icon or titlebar menu - see
+   [Using it](#using-it) above), paste them in, and click **Connect...**.
+   This opens Last.fm's authorization page in your default browser
+   (desktop-app auth flow: `auth.getToken` → you approve in the browser →
+   `auth.getSession`); once you confirm you've approved it, the resulting
+   session key is saved to `%AppData%\DeathFmTray\settings.json` (per-user,
+   never committed to the repo) and doesn't expire until you disconnect or
+   revoke it from Last.fm's side. If you're building this for other people
+   rather than just yourself, each person needs their own key rather than
+   one baked into the source, since the repo is public.
 
 Scrobbling itself is fed by `PlayerForm`, not `NowPlayingService` directly,
 because the page's now-playing display updates on a timer regardless of
@@ -237,20 +237,15 @@ unless Discord is actually running). To use it:
    [discord.com/developers/applications](https://discord.com/developers/applications)
    (any name) and copy its **Application ID** from the General Information
    page.
-2. Add it to `%AppData%\DeathFmTray\settings.json`:
-
-   ```json
-   "DiscordClientId": "..."
-   ```
-
-   Same reasoning as Last.fm's key: per-user, not committed to source, since
-   each person needs their own registered application.
+2. Open **Settings...** (tray icon or titlebar menu) and paste it into
+   **Client ID**, then **Save**. Saved to `%AppData%\DeathFmTray\settings.json`
+   (per-user, not committed to source) - same reasoning as Last.fm's key,
+   since each person needs their own registered application.
 3. Optional: under **Rich Presence → Art Assets** in that same application,
-   upload a fallback image and add its asset key as
-   `"DiscordDefaultImageKey"` in settings.json - shown when a track has no
-   album art of its own yet. Album art (when available) is passed directly
-   as an external image URL, which Discord accepts without needing to be
-   pre-uploaded.
+   upload a fallback image and paste its asset key into **Default image
+   key** in Settings - shown when a track has no album art of its own yet.
+   Album art (when available) is passed directly as an external image URL,
+   which Discord accepts without needing to be pre-uploaded.
 
 No further "connect" step is needed beyond that (unlike Last.fm) - it just
 needs your own Discord client already running locally, no OAuth/user consent

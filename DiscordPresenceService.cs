@@ -41,6 +41,14 @@ public sealed class DiscordPresenceService : IDisposable
         _client.Initialize();
     }
 
+    /// <summary>Tears down and re-opens the connection - used after the Client ID is changed via the settings dialog.</summary>
+    public void Restart()
+    {
+        _client?.Dispose();
+        _client = null;
+        Start();
+    }
+
     public void OnTrackChanged(NowPlayingMetadata metadata)
     {
         if (_client is null)

@@ -30,6 +30,7 @@ public sealed class TrayAppContext : ApplicationContext
         _settings = SettingsStore.Load();
         _playerForm = new PlayerForm(_settings);
         _playerForm.PlaybackStateChanged += OnPlaybackStateChanged;
+        _playerForm.ExitRequested += ExitApplication;
 
         _idleTrayIcon = LoadTrayIcon();
         _playingTrayIcon = BuildPlayingIcon(_idleTrayIcon);
@@ -122,6 +123,8 @@ public sealed class TrayAppContext : ApplicationContext
             Font = new Font(menu.Font, FontStyle.Bold)
         });
 
+        menu.Items.Add(new ToolStripMenuItem("Settings...", null, (_, _) => ShowSettings()));
+
         menu.Items.Add(new ToolStripSeparator());
 
         var startWithWindowsItem = new ToolStripMenuItem("Start with Windows")
@@ -160,50 +163,33 @@ public sealed class TrayAppContext : ApplicationContext
         menu.Items.Add(minimizeToTrayItem);
 
         menu.Items.Add(new ToolStripSeparator());
-
-        var lastFmItem = new ToolStripMenuItem();
-        UpdateLastFmMenuItem(lastFmItem);
-        lastFmItem.Click += async (_, _) =>
-        {
-            if (_playerForm.IsLastFmAuthorized)
-                _playerForm.DisconnectLastFm();
-            else
-                await _playerForm.ConnectLastFmAsync();
-            UpdateLastFmMenuItem(lastFmItem);
-        };
-        _playerForm.LastFmConnectionChanged += () => UpdateLastFmMenuItem(lastFmItem);
-        menu.Items.Add(lastFmItem);
-
-        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
+
+        // The titlebar's system menu (see PlayerForm.BuildSystemMenu) offers
+        // the same toggles - refresh these right before showing rather than
+        // trying to keep the two menus in sync via events.
+        menu.Opening += (_, _) =>
+        {
+            startWithWindowsItem.Checked = StartupManager.IsEnabled();
+            startMinimizedItem.Checked = _settings.StartMinimizedToTray;
+            minimizeToTrayItem.Checked = _settings.MinimizeToTrayOnClose;
+        };
 
         return menu;
     }
 
-    private void UpdateLastFmMenuItem(ToolStripMenuItem item)
-    {
-        if (_playerForm.IsLastFmAuthorized)
-        {
-            item.Text = $"Disconnect Last.fm ({_playerForm.LastFmUsername})";
-            item.Enabled = true;
-        }
-        else if (_playerForm.IsLastFmConfigured)
-        {
-            item.Text = "Connect Last.fm...";
-            item.Enabled = true;
-        }
-        else
-        {
-            item.Text = "Last.fm (add an API key to settings.json)";
-            item.Enabled = false;
-        }
-    }
-
     private void ShowPlayer() => _playerForm.ShowAndActivate();
+
+    private void ShowSettings()
+    {
+        using var settingsForm = new SettingsForm(_settings, _playerForm);
+        settingsForm.ShowDialog();
+    }
 
     private void ExitApplication()
     {
         _playerForm.PlaybackStateChanged -= OnPlaybackStateChanged;
+        _playerForm.ExitRequested -= ExitApplication;
         _trayIcon.Visible = false;
         _trayIcon.Dispose();
         if (!ReferenceEquals(_idleTrayIcon, SystemIcons.Application))
