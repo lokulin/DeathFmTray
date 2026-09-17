@@ -13,7 +13,7 @@ namespace DeathFmTray;
 internal static class WindowChromeHelper
 {
     // Must stay in sync with Program.AppUserModelId / AumidShortcutHelper.
-    private const string AppUserModelId = "TerraEclectic.DeathFmTray";
+    private const string AppUserModelId = "TerraEclectic.DeathFmTray.v2";
 
     private const int DwmwaUseImmersiveDarkMode = 20;
     private const int DwmwaCaptionColor = 35;

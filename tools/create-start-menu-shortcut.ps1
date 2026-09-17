@@ -27,7 +27,7 @@ param(
     [string]$ExePath,
 
     # Must match AppUserModelId in Program.cs - change both together if you rename the app.
-    [string]$AppId = "TerraEclectic.DeathFmTray",
+    [string]$AppId = "TerraEclectic.DeathFmTray.v2",
     [string]$AppName = "Death.FM Player"
 )
 

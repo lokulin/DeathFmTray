@@ -14,7 +14,7 @@ namespace DeathFmTray;
 internal static class AumidShortcutHelper
 {
     // Must stay in sync with Program.AppUserModelId.
-    private const string AppUserModelId = "TerraEclectic.DeathFmTray";
+    private const string AppUserModelId = "TerraEclectic.DeathFmTray.v2";
     private const string DisplayName = "Death.FM Player";
     private const string ShortcutName = "Death.FM Player.lnk";
 

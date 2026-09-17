@@ -16,7 +16,11 @@ internal static class Program
     // WebView2-hosted audio - without this it shows up as "Unknown app".
     // Must be set before the WebView2 environment is created (i.e. before
     // EnsureCoreWebView2Async runs in PlayerForm), so we do it here, first thing.
-    private const string AppUserModelId = "TerraEclectic.DeathFmTray";
+    // Bumped to .v2 to bust Windows' AUMID→friendly-name cache: the original
+    // "TerraEclectic.DeathFmTray" got cached as "Unknown app" from early runs
+    // before the Start Menu shortcut/property-store stamping existed, and that
+    // resolution appears to stick regardless of what the shortcut says now.
+    private const string AppUserModelId = "TerraEclectic.DeathFmTray.v2";
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
     private static extern int SetCurrentProcessExplicitAppUserModelID(string appId);
