@@ -63,6 +63,21 @@ dotnet publish DeathFmTray.csproj -c Release -r win-x64 --self-contained false `
 want it to run on a machine without the .NET 10 runtime installed - the output
 will just be a lot bigger.)
 
+## Releasing
+
+Pushing an annotated tag matching `v*.*.*` triggers
+`.github/workflows/build-release.yml`, which runs the publish command above
+and attaches the zipped output to a GitHub Release automatically:
+
+```powershell
+# Bump <Version>/<FileVersion> in DeathFmTray.csproj first, commit that, then:
+git tag -a v1.2.3 -m "v1.2.3 - ..."
+git push origin v1.2.3
+```
+
+`.github/workflows/build-check.yml` also builds on every push/PR to `main`,
+as a lighter "does this still compile" gate independent of tagging.
+
 ## Using it
 
 - Launching the app opens the player window and drops an icon in the tray.
