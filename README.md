@@ -16,6 +16,7 @@ cluttering your desktop.
 | `StartupManager.cs` | Adds/removes a "run at Windows startup" entry via the per-user registry Run key (no installer/admin rights needed). |
 | `NowPlayingService.cs` | Scrapes the page's now-playing DOM/audio element and bridges it to C# via `postMessage`, instead of `navigator.mediaSession`. Also runs a watchdog that reloads the page if playback gets stuck buffering. |
 | `SmtcService.cs` | Drives Windows' System Media Transport Controls (volume flyout / Now Playing) directly from our own process, fed by `NowPlayingService`. |
+| `VolumeService.cs` | Makes the page's volume slider remember its last value across launches - the page itself always resets it to a hardcoded default on load. Same bridge-via-`postMessage` approach as `NowPlayingService`. |
 | `LastFmScrobbler.cs` | Scrobbles now-playing tracks to Last.fm, fed by the same now-playing data. |
 | `DiscordPresenceService.cs` | Shows the current track as a Discord Rich Presence status, fed by the same now-playing data. |
 | `SettingsForm.cs` | Editor for the Last.fm/Discord API credentials - the only settings that don't already have a tray/system menu checkbox. |
