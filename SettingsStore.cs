@@ -17,6 +17,11 @@ public sealed class AppSettings
     // same app at one of death.fm's sister stations (80s.fm, adagio.fm, etc).
     public string StationUrl { get; set; } = "https://death.fm/player.php?station=dfm";
 
+    // The page's own #vol-slider resets to its hardcoded default (0.8) on
+    // every load - null here means "never changed it, use the page's own
+    // default" rather than baking 0.8 in twice. See VolumeService.
+    public double? Volume { get; set; }
+
     // Last.fm scrobbling. LastFmApiKey/LastFmApiSecret identify this app to
     // Last.fm's API - register a free one at last.fm/api/account/create and
     // paste them in here (not committed to source, since this file lives

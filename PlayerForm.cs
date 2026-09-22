@@ -21,6 +21,7 @@ public sealed class PlayerForm : Form
     private readonly WebView2 _webView = new();
     private readonly AppSettings _settings;
     private readonly NowPlayingService _nowPlaying;
+    private readonly VolumeService _volume;
     private readonly LastFmScrobbler _lastFm;
     private readonly DiscordPresenceService _discord;
     private bool _allowClose;
@@ -62,6 +63,7 @@ public sealed class PlayerForm : Form
     {
         _settings = settings;
         _nowPlaying = new NowPlayingService(_webView);
+        _volume = new VolumeService(_webView, settings);
         _lastFm = new LastFmScrobbler(settings);
         _discord = new DiscordPresenceService(settings);
         _discord.Start();
@@ -169,6 +171,11 @@ public sealed class PlayerForm : Form
             await _webView.EnsureCoreWebView2Async(env);
             _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
             _webView.CoreWebView2.NewWindowRequested += OnNewWindowRequested;
+            // Re-applies the persisted volume on every load - initial load,
+            // reloads, and station switches (each is a full page navigation)
+            // all count, since the page's own slider always resets to its
+            // hardcoded default otherwise. See VolumeService.
+            _webView.CoreWebView2.NavigationCompleted += (_, _) => _volume.ApplyStoredVolume();
 
             // Own SMTC session bound to this window, instead of relying on
             // WebView2/Chromium's navigator.mediaSession auto-bridging (which
@@ -185,6 +192,7 @@ public sealed class PlayerForm : Form
             // navigation so it's guaranteed to run on page load (and every
             // reload thereafter) - see NowPlayingService.cs for what it does.
             await _nowPlaying.StartAsync();
+            await _volume.StartAsync();
 
             _webView.CoreWebView2.Navigate(_settings.StationUrl);
         }
@@ -638,6 +646,7 @@ function (url) {
             _formIcon?.Dispose();
             _smtc?.Dispose();
             _nowPlaying.Dispose();
+            _volume.Dispose();
             _lastFm.Dispose();
             _discord.Dispose();
         }
