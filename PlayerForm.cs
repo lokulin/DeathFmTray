@@ -46,8 +46,7 @@ public sealed class PlayerForm : Form
     private const int CmdStartMinimized = 0x1020;
     private const int CmdMinimizeToTrayOnClose = 0x1030;
     private const int CmdShowTrackChangeNotifications = 0x1040;
-    private const int CmdSendTestNotification = 0x1050;
-    private const int CmdExit = 0x1060;
+    private const int CmdExit = 0x1050;
     private const int WM_SYSCOMMAND = 0x0112;
     private const int WM_INITMENU = 0x0116;
 
@@ -590,7 +589,6 @@ function (url) {
         SystemMenuHelper.AddItem(Handle, CmdStartMinimized, "Start Minimized to Tray");
         SystemMenuHelper.AddItem(Handle, CmdMinimizeToTrayOnClose, "Minimize to Tray on Close");
         SystemMenuHelper.AddItem(Handle, CmdShowTrackChangeNotifications, "Show Notification on Track Change");
-        SystemMenuHelper.AddItem(Handle, CmdSendTestNotification, "Send Test Notification");
         SystemMenuHelper.AddSeparator(Handle);
         SystemMenuHelper.AddItem(Handle, CmdExit, "Exit");
     }
@@ -648,10 +646,6 @@ function (url) {
             case CmdShowTrackChangeNotifications:
                 _settings.ShowTrackChangeNotifications = !_settings.ShowTrackChangeNotifications;
                 SettingsStore.Save(_settings);
-                return true;
-
-            case CmdSendTestNotification:
-                SendTestNotification();
                 return true;
 
             case CmdExit:

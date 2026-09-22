@@ -174,8 +174,6 @@ public sealed class TrayAppContext : ApplicationContext
         };
         menu.Items.Add(trackChangeNotificationsItem);
 
-        menu.Items.Add(new ToolStripMenuItem("Send Test Notification", null, (_, _) => _playerForm.SendTestNotification()));
-
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
