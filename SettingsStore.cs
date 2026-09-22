@@ -9,6 +9,7 @@ public sealed class AppSettings
 {
     public bool StartMinimizedToTray { get; set; }
     public bool MinimizeToTrayOnClose { get; set; } = true;
+    public bool ShowTrackChangeNotifications { get; set; } = true;
 
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }

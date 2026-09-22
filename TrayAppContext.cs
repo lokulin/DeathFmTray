@@ -162,6 +162,20 @@ public sealed class TrayAppContext : ApplicationContext
         };
         menu.Items.Add(minimizeToTrayItem);
 
+        var trackChangeNotificationsItem = new ToolStripMenuItem("Show Notification on Track Change")
+        {
+            Checked = _settings.ShowTrackChangeNotifications,
+            CheckOnClick = true
+        };
+        trackChangeNotificationsItem.Click += (_, _) =>
+        {
+            _settings.ShowTrackChangeNotifications = trackChangeNotificationsItem.Checked;
+            SettingsStore.Save(_settings);
+        };
+        menu.Items.Add(trackChangeNotificationsItem);
+
+        menu.Items.Add(new ToolStripMenuItem("Send Test Notification", null, (_, _) => _playerForm.SendTestNotification()));
+
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitApplication()));
 
@@ -173,6 +187,7 @@ public sealed class TrayAppContext : ApplicationContext
             startWithWindowsItem.Checked = StartupManager.IsEnabled();
             startMinimizedItem.Checked = _settings.StartMinimizedToTray;
             minimizeToTrayItem.Checked = _settings.MinimizeToTrayOnClose;
+            trackChangeNotificationsItem.Checked = _settings.ShowTrackChangeNotifications;
         };
 
         return menu;

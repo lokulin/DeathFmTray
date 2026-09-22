@@ -22,6 +22,7 @@ public sealed class PlayerForm : Form
     private readonly AppSettings _settings;
     private readonly NowPlayingService _nowPlaying;
     private readonly VolumeService _volume;
+    private readonly TrackChangeNotifier _trackChangeNotifier;
     private readonly LastFmScrobbler _lastFm;
     private readonly DiscordPresenceService _discord;
     private bool _allowClose;
@@ -44,7 +45,9 @@ public sealed class PlayerForm : Form
     private const int CmdStartWithWindows = 0x1010;
     private const int CmdStartMinimized = 0x1020;
     private const int CmdMinimizeToTrayOnClose = 0x1030;
-    private const int CmdExit = 0x1050;
+    private const int CmdShowTrackChangeNotifications = 0x1040;
+    private const int CmdSendTestNotification = 0x1050;
+    private const int CmdExit = 0x1060;
     private const int WM_SYSCOMMAND = 0x0112;
     private const int WM_INITMENU = 0x0116;
 
@@ -64,6 +67,7 @@ public sealed class PlayerForm : Form
         _settings = settings;
         _nowPlaying = new NowPlayingService(_webView);
         _volume = new VolumeService(_webView, settings);
+        _trackChangeNotifier = new TrackChangeNotifier(settings);
         _lastFm = new LastFmScrobbler(settings);
         _discord = new DiscordPresenceService(settings);
         _discord.Start();
@@ -187,6 +191,8 @@ public sealed class PlayerForm : Form
             _nowPlaying.PlaybackStateChanged += OnNowPlayingPlaybackStateChanged;
             _nowPlaying.ThemeChanged += OnThemeChanged;
             _nowPlaying.LoginOverlayClosed += OnLoginOverlayClosed;
+            _nowPlaying.MetadataChanged += _trackChangeNotifier.OnMetadataChanged;
+            _nowPlaying.PlaybackStateChanged += _trackChangeNotifier.OnPlaybackStateChanged;
 
             // Registers the now-playing bridge script before the first
             // navigation so it's guaranteed to run on page load (and every
@@ -566,6 +572,13 @@ function (url) {
         SettingsStore.Save(_settings);
     }
 
+    /// <summary>Fires a toast using whatever track is currently cached, so notifications can be verified without waiting for a real track change.</summary>
+    public void SendTestNotification()
+    {
+        NowPlayingMetadata metadata = _lastMetadata ?? new NowPlayingMetadata("Death.FM", "Death.FM", "", null);
+        _trackChangeNotifier.ShowTest(metadata);
+    }
+
     /// <summary>Re-opens the Discord RPC connection - used by the settings dialog after the Client ID is changed.</summary>
     public void RestartDiscordPresence() => _discord.Restart();
 
@@ -576,6 +589,8 @@ function (url) {
         SystemMenuHelper.AddItem(Handle, CmdStartWithWindows, "Start with Windows");
         SystemMenuHelper.AddItem(Handle, CmdStartMinimized, "Start Minimized to Tray");
         SystemMenuHelper.AddItem(Handle, CmdMinimizeToTrayOnClose, "Minimize to Tray on Close");
+        SystemMenuHelper.AddItem(Handle, CmdShowTrackChangeNotifications, "Show Notification on Track Change");
+        SystemMenuHelper.AddItem(Handle, CmdSendTestNotification, "Send Test Notification");
         SystemMenuHelper.AddSeparator(Handle);
         SystemMenuHelper.AddItem(Handle, CmdExit, "Exit");
     }
@@ -591,6 +606,7 @@ function (url) {
             SystemMenuHelper.SetChecked(Handle, CmdStartWithWindows, StartupManager.IsEnabled());
             SystemMenuHelper.SetChecked(Handle, CmdStartMinimized, _settings.StartMinimizedToTray);
             SystemMenuHelper.SetChecked(Handle, CmdMinimizeToTrayOnClose, _settings.MinimizeToTrayOnClose);
+            SystemMenuHelper.SetChecked(Handle, CmdShowTrackChangeNotifications, _settings.ShowTrackChangeNotifications);
         }
         else if (m.Msg == WM_SYSCOMMAND)
         {
@@ -629,6 +645,14 @@ function (url) {
                 SettingsStore.Save(_settings);
                 return true;
 
+            case CmdShowTrackChangeNotifications:
+                _settings.ShowTrackChangeNotifications = !_settings.ShowTrackChangeNotifications;
+                SettingsStore.Save(_settings);
+                return true;
+
+            case CmdSendTestNotification:
+                SendTestNotification();
+                return true;
 
             case CmdExit:
                 ExitRequested?.Invoke();
