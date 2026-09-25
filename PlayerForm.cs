@@ -20,6 +20,9 @@ public sealed class PlayerForm : Form
 {
     private readonly WebView2 _webView = new();
     private readonly AppSettings _settings;
+    private readonly CastService _castService;
+    private readonly CastButton _castButton = new();
+    private readonly ToolTip _castButtonToolTip = new();
     private readonly NowPlayingService _nowPlaying;
     private readonly VolumeService _volume;
     private readonly TrackChangeNotifier _trackChangeNotifier;
@@ -42,11 +45,12 @@ public sealed class PlayerForm : Form
     // and Windows may use the low 4 bits internally, so these are kept at
     // round multiples of 0x10.
     private const int CmdSettings = 0x1000;
-    private const int CmdStartWithWindows = 0x1010;
-    private const int CmdStartMinimized = 0x1020;
-    private const int CmdMinimizeToTrayOnClose = 0x1030;
-    private const int CmdShowTrackChangeNotifications = 0x1040;
-    private const int CmdExit = 0x1050;
+    private const int CmdCastTo = 0x1010;
+    private const int CmdStartWithWindows = 0x1020;
+    private const int CmdStartMinimized = 0x1030;
+    private const int CmdMinimizeToTrayOnClose = 0x1040;
+    private const int CmdShowTrackChangeNotifications = 0x1050;
+    private const int CmdExit = 0x1060;
     private const int WM_SYSCOMMAND = 0x0112;
     private const int WM_INITMENU = 0x0116;
 
@@ -61,9 +65,10 @@ public sealed class PlayerForm : Form
     /// <summary>Raised whenever playback starts/stops/pauses - used by TrayAppContext to reflect state in the tray icon.</summary>
     public event Action<PlaybackState>? PlaybackStateChanged;
 
-    public PlayerForm(AppSettings settings)
+    public PlayerForm(AppSettings settings, CastService castService)
     {
         _settings = settings;
+        _castService = castService;
         _nowPlaying = new NowPlayingService(_webView);
         _volume = new VolumeService(_webView, settings);
         _trackChangeNotifier = new TrackChangeNotifier(settings);
@@ -115,9 +120,40 @@ public sealed class PlayerForm : Form
         _webView.Dock = DockStyle.Fill;
         Controls.Add(_webView);
 
+        // Overlaid on top of the WebView2 rather than docked/anchored via
+        // layout, since it needs to float above the page in a fixed corner.
+        // Bottom-right, vertically centered on the page's own time readout.
+        _castButton.Location = new Point(ClientSize.Width - _castButton.Width - 12, ClientSize.Height - _castButton.Height - 20);
+        _castButton.Click += (_, _) => _ = CastMenuHelper.ShowAsync(_castService, _castButton.PointToScreen(new Point(0, _castButton.Height)));
+        _castService.StateChanged += OnCastStateChanged;
+        UpdateCastButtonState();
+        Controls.Add(_castButton);
+        _castButton.BringToFront();
+
         Load += PlayerForm_Load;
         Resize += PlayerForm_Resize;
         FormClosing += PlayerForm_FormClosing;
+    }
+
+    private void OnCastStateChanged(object? sender, EventArgs e)
+    {
+        if (InvokeRequired)
+        {
+            BeginInvoke(UpdateCastButtonState);
+            return;
+        }
+        UpdateCastButtonState();
+    }
+
+    private void UpdateCastButtonState()
+    {
+        _castButton.IsCasting = _castService.State != CastState.Idle;
+        _castButtonToolTip.SetToolTip(_castButton, _castService.State switch
+        {
+            CastState.Casting => $"Casting to {_castService.CastingDeviceName}",
+            CastState.Connecting => "Connecting...",
+            _ => "Cast to..."
+        });
     }
 
     private void TrySetIcon()
@@ -585,6 +621,7 @@ function (url) {
     {
         SystemMenuHelper.AddSeparator(Handle);
         SystemMenuHelper.AddItem(Handle, CmdSettings, "Settings...");
+        SystemMenuHelper.AddItem(Handle, CmdCastTo, "Cast to...");
         SystemMenuHelper.AddItem(Handle, CmdStartWithWindows, "Start with Windows");
         SystemMenuHelper.AddItem(Handle, CmdStartMinimized, "Start Minimized to Tray");
         SystemMenuHelper.AddItem(Handle, CmdMinimizeToTrayOnClose, "Minimize to Tray on Close");
@@ -626,6 +663,10 @@ function (url) {
             case CmdSettings:
                 using (var settingsForm = new SettingsForm(_settings, this))
                     settingsForm.ShowDialog(this);
+                return true;
+
+            case CmdCastTo:
+                _ = CastMenuHelper.ShowAsync(_castService, Cursor.Position);
                 return true;
 
             case CmdStartWithWindows:

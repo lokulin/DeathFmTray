@@ -21,6 +21,7 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly NotifyIcon _trayIcon;
     private readonly Icon _idleTrayIcon;
     private readonly Icon _playingTrayIcon;
+    private readonly CastService _castService;
 
     [DllImport("user32.dll")]
     private static extern bool DestroyIcon(IntPtr handle);
@@ -28,7 +29,8 @@ public sealed class TrayAppContext : ApplicationContext
     public TrayAppContext()
     {
         _settings = SettingsStore.Load();
-        _playerForm = new PlayerForm(_settings);
+        _castService = new CastService(_settings);
+        _playerForm = new PlayerForm(_settings, _castService);
         _playerForm.PlaybackStateChanged += OnPlaybackStateChanged;
         _playerForm.ExitRequested += ExitApplication;
 
@@ -125,6 +127,10 @@ public sealed class TrayAppContext : ApplicationContext
 
         menu.Items.Add(new ToolStripMenuItem("Settings...", null, (_, _) => ShowSettings()));
 
+        // Not a submenu: populating it lazily on hover would need mutating an
+        // already-open dropdown, which mispositions it (see CastMenuHelper).
+        menu.Items.Add(new ToolStripMenuItem("Cast to...", null, (_, _) => _ = CastMenuHelper.ShowAsync(_castService, Cursor.Position)));
+
         menu.Items.Add(new ToolStripSeparator());
 
         var startWithWindowsItem = new ToolStripMenuItem("Start with Windows")
@@ -210,6 +216,7 @@ public sealed class TrayAppContext : ApplicationContext
             _idleTrayIcon.Dispose();
         }
         _playingTrayIcon.Dispose();
+        _castService.Dispose();
         _playerForm.ForceClose();
         ExitThread();
     }

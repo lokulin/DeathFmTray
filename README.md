@@ -20,6 +20,9 @@ cluttering your desktop.
 | `LastFmScrobbler.cs` | Scrobbles now-playing tracks to Last.fm, fed by the same now-playing data. |
 | `DiscordPresenceService.cs` | Shows the current track as a Discord Rich Presence status, fed by the same now-playing data. |
 | `SettingsForm.cs` | Editor for the Last.fm/Discord API credentials - the only settings that don't already have a tray/system menu checkbox. |
+| `CastService.cs` | Discovers Chromecast devices and drives casting via [SharpCaster](https://github.com/Tapanila/SharpCaster) - joins the same custom receiver the Android app uses, loads the live stream, and hands off Last.fm credentials. |
+| `CastMenuHelper.cs` | Builds/shows the "Cast to" device-picker popup, shared by the tray menu, the titlebar system menu, and `CastButton`. Dark-themed to match the rest of the app. |
+| `CastButton.cs` | The small cast icon overlaid on the player window itself, next to the time readout. |
 | `AumidShortcutHelper.cs` | Creates a Start Menu shortcut stamped with the process AUMID so the media flyout shows "Death.FM Player" instead of "Unknown app". |
 | `WindowChromeHelper.cs` | Applies a dark titlebar via DWM window attributes, recolored per-station by `PlayerForm`. |
 | `SystemMenuHelper.cs` | Appends custom items to a window's native system menu (the titlebar's app-icon menu). |
@@ -100,6 +103,11 @@ as a lighter "does this still compile" gate independent of tagging.
 
 Double-clicking the tray icon restores the window. The tray icon itself gets
 a small green dot overlaid on it while a stream is actively playing.
+
+**Cast to** a Chromecast device is available three ways - the tray menu, the
+titlebar system menu, or the small cast icon overlaid in the player window's
+bottom-right corner, next to the time readout. All three open the same
+device-picker popup (`CastMenuHelper.cs`).
 
 The player window never gets its own taskbar button (`ShowInTaskbar = false`
 in `PlayerForm.cs`) - the tray icon is the app's only representation while
@@ -246,6 +254,46 @@ reset that timer - only an actual Stop does - since this stream rebuffers
 often enough that treating every blip as a stop meant a track could play
 for minutes total, across a few short interruptions, and never accumulate
 enough continuous time to ever qualify.
+
+## Casting to Chromecast
+
+`CastService.cs` uses [SharpCaster](https://github.com/Tapanila/SharpCaster)
+to discover Chromecast devices and cast the live stream (`https://death.fm/live`)
+to the same custom receiver app (Cast app ID `0CD00C8F`, see the
+`DeathFmCastReceiver` repo) that the Android app already targets. The receiver
+polls death.fm for now-playing data itself, so the sender's only job is
+pointing a device at the stream URL - no metadata needs pushing from here.
+
+A few implementation notes, in case this needs touching again:
+
+- **Joins rather than relaunches** the receiver app
+  (`joinExistingApplicationSession: true`), and "Stop casting" only
+  disconnects this sender rather than stopping the receiver - matching
+  `DeathFmAndroid`'s `setStopReceiverApplicationWhenEndingSession(false)`, so
+  the receiver keeps playing (and keeps a Last.fm session alive) after you
+  disconnect.
+- **Last.fm handoff.** If Last.fm is connected (see above), casting sends the
+  already-stored API key/secret/session key to the receiver as a one-shot
+  JSON message over the same custom namespace
+  (`urn:x-cast:com.terraeclectic.deathfm.lastfm`) the Android app uses, via
+  `ChromecastClient.SendAsync(...)` directly - the installed SharpCaster 3.0.0
+  package doesn't actually expose the `RegisterChannel`/custom-channel API its
+  own README documents, so this bypasses that and sends the message at the
+  lower level SharpCaster's own built-in channels use internally.
+- **The "Cast to" popup is a fresh menu, not a submenu.** Device discovery
+  takes a couple of seconds; WinForms mispositions a `ToolStripDropDown`
+  (it can jump to the screen's top-left corner) if its `Items` are mutated
+  while already open, which a submenu populated on hover would need to do.
+  `CastMenuHelper` discovers first and only shows a brand-new
+  `ContextMenuStrip` once it's fully built, sidestepping that entirely - and
+  since it's shown at a point rather than attached to a control, its usual
+  auto-close-on-outside-click doesn't reliably see clicks landing on
+  WebView2's embedded Chromium child window, so an explicit
+  `IMessageFilter` (`OutsideClickCloser`) closes it on any click outside its
+  bounds regardless of which control received it.
+- The titlebar system menu's command IDs (`PlayerForm.cs`) all need to stay
+  round multiples of `0x10` - see the existing comment there - a prior bug
+  had `CmdCastTo` collide with `CmdSettings` after Windows' low-4-bit masking.
 
 ## Discord Rich Presence
 
