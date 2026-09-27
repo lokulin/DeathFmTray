@@ -117,20 +117,19 @@ to bring it back regardless.
 
 ## Windows media controls (volume flyout / Now Playing)
 
-An earlier version of this used the browser's
+The browser's
 [Media Session API](https://developer.mozilla.org/en-US/docs/Web/API/Media_Session_API)
-(`navigator.mediaSession`) and let WebView2/Chromium auto-bridge it to
-Windows' System Media Transport Controls (SMTC). That turned out to be a
-dead end: WebView2 runs the actual browser engine in a separate
-`msedgewebview2.exe` child process, and *that* process - not ours - is what
-registers the SMTC session, under its own identity. No AUMID/shortcut work on
-`DeathFmTray.exe` itself can fix that, and even worse, Chromium auto-creates
-a *second*, generic SMTC session for any page playing audio - using the page
-title as a fallback - regardless of whether the page touches
-`navigator.mediaSession` at all. Windows would show that second, wrongly-
-attributed session instead of ours.
+(`navigator.mediaSession`), auto-bridged by WebView2/Chromium to Windows'
+System Media Transport Controls (SMTC), doesn't work here: WebView2 runs the
+actual browser engine in a separate `msedgewebview2.exe` child process, and
+*that* process - not ours - is what registers the SMTC session, under its
+own identity. No AUMID/shortcut work on `DeathFmTray.exe` itself can fix
+that. Chromium also auto-creates a *second*, generic SMTC session for any
+page playing audio - using the page title as a fallback - regardless of
+whether the page touches `navigator.mediaSession` at all, and Windows shows
+that second, wrongly-attributed session instead of ours.
 
-The actual fix, in two parts:
+The fix has two parts:
 
 - **`NowPlayingService.cs`** scrapes `#np-track` / `#np-artist` / `#np-album`
   / `#now-playing-art` and the `<audio id="audio-engine">` element's
@@ -149,14 +148,12 @@ The actual fix, in two parts:
   argument, which stops Chromium from creating its own competing SMTC session
   in the first place.
 
-SMTC's `GetForWindow` interop is notoriously undocumented in managed .NET;
-getting it working took a few rounds of live debugging (an
-`AccessViolationException` from an assumed vtable slot that turned out to be
-wrong - the factory interface actually derives from `IInspectable`, not
-`IUnknown` - then an `InvalidCastException` from requesting the wrong
-interface IID). If you ever need to touch that file again, `Marshal.
-QueryInterface` against a live pointer is a much safer way to check vtable
-assumptions than guessing and re-running.
+SMTC's `GetForWindow` interop is notoriously undocumented in managed .NET.
+One gotcha worth knowing if you touch that file again: the factory interface
+derives from `IInspectable`, not `IUnknown`, so its vtable layout isn't what
+a naive `IUnknown`-based guess would assume. Use `Marshal.QueryInterface`
+against a live pointer to verify vtable assumptions and interface IIDs
+rather than guessing.
 
 ## Fixing "Unknown app" in the volume mixer / media flyout
 
@@ -200,12 +197,11 @@ death.fm page behaves inside a WebView2 shell instead of a normal browser tab:
   `<iframe>` instead - same WebView2, same cookie jar, and it doesn't touch
   the fixed 1050×550 layout. **Known limitation:** closing the overlay is
   supposed to refresh the chat panel to reflect the new login, but doesn't
-  reliably pick it up yet, even though the session cookie is confirmed set
-  correctly (checked the WebView2 profile's cookie database directly) - a
-  full page reload does show it correctly, so `OnLoginOverlayClosed` does
-  that instead (auto-resuming playback afterward so it isn't disruptive),
-  but the underlying "why doesn't the chat iframe alone pick it up" question
-  is still open. Parked as a known issue rather than chased further for now.
+  reliably pick it up, even though the session cookie is set correctly in
+  the WebView2 profile. A full page reload does show it correctly, so
+  `OnLoginOverlayClosed` does that instead (auto-resuming playback afterward
+  so it isn't disruptive) - the chat iframe alone not picking up the new
+  login remains an open issue.
 - **Album rating popup.** Rating an album (`window.open` from the Now
   Playing panel) used to refresh the *entire* player from the popup's
   `window.opener` after you rated, reloading the `<audio>` element and
