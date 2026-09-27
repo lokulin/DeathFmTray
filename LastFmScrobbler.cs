@@ -48,10 +48,7 @@ public sealed class LastFmScrobbler : IDisposable
         _settings = settings;
     }
 
-    public bool IsConfigured =>
-        !string.IsNullOrEmpty(_settings.LastFmApiKey) && !string.IsNullOrEmpty(_settings.LastFmApiSecret);
-
-    public bool IsAuthorized => IsConfigured && !string.IsNullOrEmpty(_settings.LastFmSessionKey);
+    public bool IsAuthorized => !string.IsNullOrEmpty(_settings.LastFmSessionKey);
 
     public void Dispose() => _http.Dispose();
 
@@ -101,7 +98,7 @@ public sealed class LastFmScrobbler : IDisposable
                 ["method"] = "track.updateNowPlaying",
                 ["artist"] = track.Artist,
                 ["track"] = track.Title,
-                ["api_key"] = _settings.LastFmApiKey!,
+                ["api_key"] = AppCredentials.LastFmApiKey,
                 ["sk"] = _settings.LastFmSessionKey!,
             };
             if (!string.IsNullOrEmpty(track.Album))
@@ -125,7 +122,7 @@ public sealed class LastFmScrobbler : IDisposable
                 ["artist"] = track.Artist,
                 ["track"] = track.Title,
                 ["timestamp"] = startedAt.ToUnixTimeSeconds().ToString(),
-                ["api_key"] = _settings.LastFmApiKey!,
+                ["api_key"] = AppCredentials.LastFmApiKey,
                 ["sk"] = _settings.LastFmSessionKey!,
             };
             if (!string.IsNullOrEmpty(track.Album))
@@ -145,7 +142,7 @@ public sealed class LastFmScrobbler : IDisposable
         var parameters = new SortedDictionary<string, string>
         {
             ["method"] = "auth.getToken",
-            ["api_key"] = _settings.LastFmApiKey!,
+            ["api_key"] = AppCredentials.LastFmApiKey,
         };
         using JsonDocument doc = await PostSignedAsync(parameters);
         return doc.RootElement.GetProperty("token").GetString()!;
@@ -153,7 +150,7 @@ public sealed class LastFmScrobbler : IDisposable
 
     /// <summary>Step 2: the URL the user needs to open to grant this app access.</summary>
     public string BuildAuthorizeUrl(string token) =>
-        $"https://www.last.fm/api/auth/?api_key={Uri.EscapeDataString(_settings.LastFmApiKey!)}&token={Uri.EscapeDataString(token)}";
+        $"https://www.last.fm/api/auth/?api_key={Uri.EscapeDataString(AppCredentials.LastFmApiKey)}&token={Uri.EscapeDataString(token)}";
 
     /// <summary>Step 3: once the user has authorized in their browser, exchange the token for a session key.</summary>
     public async Task<(string SessionKey, string Username)> CompleteAuthAsync(string token)
@@ -161,7 +158,7 @@ public sealed class LastFmScrobbler : IDisposable
         var parameters = new SortedDictionary<string, string>
         {
             ["method"] = "auth.getSession",
-            ["api_key"] = _settings.LastFmApiKey!,
+            ["api_key"] = AppCredentials.LastFmApiKey,
             ["token"] = token,
         };
         using JsonDocument doc = await PostSignedAsync(parameters);
@@ -171,7 +168,7 @@ public sealed class LastFmScrobbler : IDisposable
 
     private async Task<JsonDocument> PostSignedAsync(SortedDictionary<string, string> parameters)
     {
-        string signature = ComputeSignature(parameters, _settings.LastFmApiSecret!);
+        string signature = ComputeSignature(parameters, AppCredentials.LastFmApiSecret);
 
         var form = new Dictionary<string, string>(parameters)
         {

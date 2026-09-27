@@ -23,26 +23,14 @@ public sealed class AppSettings
     // default" rather than baking 0.8 in twice. See VolumeService.
     public double? Volume { get; set; }
 
-    // Last.fm scrobbling. LastFmApiKey/LastFmApiSecret identify this app to
-    // Last.fm's API - register a free one at last.fm/api/account/create and
-    // paste them in here (not committed to source, since this file lives
-    // under %AppData%, well away from the git repo). LastFmSessionKey/
-    // LastFmUsername are filled in automatically by the "Connect Last.fm..."
+    // Last.fm scrobbling. The API key/secret that identify this app to
+    // Last.fm's API are baked in as compile-time constants (see
+    // AppCredentials) rather than stored here, since they're this app's own
+    // identifiers, not a per-user secret. LastFmSessionKey/LastFmUsername are
+    // still per-user: filled in automatically by the "Connect Last.fm..."
     // tray menu flow once you've authorized the app in your browser.
-    public string? LastFmApiKey { get; set; }
-    public string? LastFmApiSecret { get; set; }
     public string? LastFmSessionKey { get; set; }
     public string? LastFmUsername { get; set; }
-
-    // Discord Rich Presence. Register a free application at
-    // discord.com/developers/applications to get a Client ID - no OAuth/user
-    // consent needed beyond that, unlike Last.fm, since this only talks to
-    // your own already-running Discord desktop client over a local pipe.
-    // DiscordDefaultImageKey is optional: the asset key of an image uploaded
-    // under Rich Presence -> Art Assets for that application, shown when the
-    // current track has no album art of its own yet.
-    public string? DiscordClientId { get; set; }
-    public string? DiscordDefaultImageKey { get; set; }
 }
 
 /// <summary>Reads/writes AppSettings as JSON under %AppData%\DeathFmTray\settings.json.</summary>

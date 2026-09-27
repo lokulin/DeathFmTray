@@ -119,9 +119,7 @@ public sealed class CastService : IDisposable
 
     private async Task SendLastFmCredentialsAsync(ChromecastClient client, string transportId)
     {
-        if (string.IsNullOrEmpty(_settings.LastFmApiKey) ||
-            string.IsNullOrEmpty(_settings.LastFmApiSecret) ||
-            string.IsNullOrEmpty(_settings.LastFmSessionKey))
+        if (string.IsNullOrEmpty(_settings.LastFmSessionKey))
         {
             return;
         }
@@ -130,8 +128,8 @@ public sealed class CastService : IDisposable
         {
             string json = JsonSerializer.Serialize(new
             {
-                apiKey = _settings.LastFmApiKey,
-                apiSecret = _settings.LastFmApiSecret,
+                apiKey = AppCredentials.LastFmApiKey,
+                apiSecret = AppCredentials.LastFmApiSecret,
                 sessionKey = _settings.LastFmSessionKey,
             });
             await client.SendAsync(logger: null, LastFmNamespace, json, transportId);

@@ -19,7 +19,7 @@ cluttering your desktop.
 | `VolumeService.cs` | Makes the page's volume slider remember its last value across launches - the page itself always resets it to a hardcoded default on load. Same bridge-via-`postMessage` approach as `NowPlayingService`. |
 | `LastFmScrobbler.cs` | Scrobbles now-playing tracks to Last.fm, fed by the same now-playing data. |
 | `DiscordPresenceService.cs` | Shows the current track as a Discord Rich Presence status, fed by the same now-playing data. |
-| `SettingsForm.cs` | Editor for the Last.fm/Discord API credentials - the only settings that don't already have a tray/system menu checkbox. |
+| `SettingsForm.cs` | Editor for the Last.fm Connect/Disconnect flow - the only setting that doesn't already have a tray/system menu checkbox. |
 | `CastService.cs` | Discovers Chromecast devices and drives casting via [SharpCaster](https://github.com/Tapanila/SharpCaster) - joins the same custom receiver the Android app uses, loads the live stream, and hands off Last.fm credentials. |
 | `CastMenuHelper.cs` | Builds/shows the "Cast to" device-picker popup, shared by the tray menu, the titlebar system menu, and `CastButton`. Dark-themed to match the rest of the app. |
 | `CastButton.cs` | The small cast icon overlaid on the player window itself, next to the time readout. |
@@ -94,7 +94,7 @@ as a lighter "does this still compile" gate independent of tagging.
     "system menu", with a few extra items appended (`SystemMenuHelper.cs`).
 - Both offer:
   - **Show Player** (tray only) - restore/focus the window
-  - **Settings...** - Last.fm/Discord API credentials; see below
+  - **Settings...** - Last.fm Connect/Disconnect; see below
   - **Start with Windows** - toggles a registry Run-key entry
   - **Start Minimized to Tray** - skip showing the window on launch
   - **Minimize to Tray on Close** - untick if you'd rather the X button
@@ -223,22 +223,19 @@ death.fm page behaves inside a WebView2 shell instead of a normal browser tab:
 ## Last.fm scrobbling
 
 `LastFmScrobbler.cs` talks to Last.fm's Audioscrobbler API (plain REST/JSON
-over HTTPS - no native interop needed, unlike `SmtcService`). To use it:
+over HTTPS - no native interop needed, unlike `SmtcService`). The API
+key/shared secret that identify this app to Last.fm are baked in as compile-
+time constants (`AppCredentials.cs`) - they're this app's own identifiers,
+not a per-user secret, so there's nothing to register or paste in. To use it:
 
-1. Register a free API application at
-   [last.fm/api/account/create](https://www.last.fm/api/account/create)
-   (any name; leave the callback URL blank) to get an **API key** and
-   **shared secret**.
-2. Open **Settings...** (tray icon or titlebar menu - see
-   [Using it](#using-it) above), paste them in, and click **Connect...**.
-   This opens Last.fm's authorization page in your default browser
-   (desktop-app auth flow: `auth.getToken` → you approve in the browser →
-   `auth.getSession`); once you confirm you've approved it, the resulting
-   session key is saved to `%AppData%\DeathFmTray\settings.json` (per-user,
-   never committed to the repo) and doesn't expire until you disconnect or
-   revoke it from Last.fm's side. If you're building this for other people
-   rather than just yourself, each person needs their own key rather than
-   one baked into the source, since the repo is public.
+1. Open **Settings...** (tray icon or titlebar menu - see
+   [Using it](#using-it) above) and click **Connect...**. This opens Last.fm's
+   authorization page in your default browser (desktop-app auth flow:
+   `auth.getToken` → you approve in the browser → `auth.getSession`); once you
+   confirm you've approved it, the resulting session key is saved to
+   `%AppData%\DeathFmTray\settings.json` (per-user, never committed to the
+   repo) and doesn't expire until you disconnect or revoke it from Last.fm's
+   side.
 
 Scrobbling itself is fed by `PlayerForm`, not `NowPlayingService` directly,
 because the page's now-playing display updates on a timer regardless of
@@ -301,25 +298,16 @@ A few implementation notes, in case this needs touching again:
 via Discord's local RPC (a named pipe the desktop client listens on - the
 [DiscordRichPresence](https://github.com/Lachee/discord-rpc-csharp) library
 handles connecting/reconnecting to it in the background; nothing shows up
-unless Discord is actually running). To use it:
+unless Discord is actually running). This app's Application ID (and a
+fallback image asset key, shown when a track has no album art of its own yet)
+are baked in as compile-time constants (`AppCredentials.cs`), the same as
+Last.fm's key above - there's no application to register and no Client ID to
+paste in. It just works automatically whenever Discord is running locally,
+no OAuth/user consent or "connect" step involved. Album art (when available)
+is passed directly as an external image URL, which Discord accepts without
+needing to be pre-uploaded.
 
-1. Create a free application at
-   [discord.com/developers/applications](https://discord.com/developers/applications)
-   (any name) and copy its **Application ID** from the General Information
-   page.
-2. Open **Settings...** (tray icon or titlebar menu) and paste it into
-   **Client ID**, then **Save**. Saved to `%AppData%\DeathFmTray\settings.json`
-   (per-user, not committed to source) - same reasoning as Last.fm's key,
-   since each person needs their own registered application.
-3. Optional: under **Rich Presence → Art Assets** in that same application,
-   upload a fallback image and paste its asset key into **Default image
-   key** in Settings - shown when a track has no album art of its own yet.
-   Album art (when available) is passed directly as an external image URL,
-   which Discord accepts without needing to be pre-uploaded.
-
-No further "connect" step is needed beyond that (unlike Last.fm) - it just
-needs your own Discord client already running locally, no OAuth/user consent
-involved. **Note:** this always shows as "Playing Death.FM Player" rather
+**Note:** this always shows as "Playing Death.FM Player" rather
 than "Listening to ..." - the "Listening to Spotify" verb is a first-party
 integration Discord built specifically for Spotify, not something exposed
 through the general RPC protocol third-party apps use. Track/artist details

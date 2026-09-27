@@ -73,7 +73,7 @@ public sealed class PlayerForm : Form
         _volume = new VolumeService(_webView, settings);
         _trackChangeNotifier = new TrackChangeNotifier(settings);
         _lastFm = new LastFmScrobbler(settings);
-        _discord = new DiscordPresenceService(settings);
+        _discord = new DiscordPresenceService();
         _discord.Start();
 
         Text = "Death.FM Player";
@@ -554,17 +554,6 @@ function (url) {
     /// </summary>
     public async Task ConnectLastFmAsync()
     {
-        if (!_lastFm.IsConfigured)
-        {
-            MessageBox.Show(
-                "Add a Last.fm API key and secret in Settings first " +
-                "(get one free at last.fm/api/account/create), then try again.",
-                "Death.FM Player",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-            return;
-        }
-
         try
         {
             string token = await _lastFm.GetAuthTokenAsync();
@@ -613,9 +602,6 @@ function (url) {
         NowPlayingMetadata metadata = _lastMetadata ?? new NowPlayingMetadata("Death.FM", "Death.FM", "", null);
         _trackChangeNotifier.ShowTest(metadata);
     }
-
-    /// <summary>Re-opens the Discord RPC connection - used by the settings dialog after the Client ID is changed.</summary>
-    public void RestartDiscordPresence() => _discord.Restart();
 
     private void BuildSystemMenu()
     {

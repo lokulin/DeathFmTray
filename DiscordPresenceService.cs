@@ -21,32 +21,16 @@ namespace DeathFmTray;
 /// </summary>
 public sealed class DiscordPresenceService : IDisposable
 {
-    private readonly AppSettings _settings;
     private DiscordRpcClient? _client;
-
-    public DiscordPresenceService(AppSettings settings)
-    {
-        _settings = settings;
-    }
-
-    public bool IsConfigured => !string.IsNullOrEmpty(_settings.DiscordClientId);
 
     /// <summary>Opens the connection to Discord's local RPC pipe. Safe to call even if Discord isn't running yet.</summary>
     public void Start()
     {
-        if (!IsConfigured || _client is not null)
+        if (_client is not null)
             return;
 
-        _client = new DiscordRpcClient(_settings.DiscordClientId);
+        _client = new DiscordRpcClient(AppCredentials.DiscordClientId);
         _client.Initialize();
-    }
-
-    /// <summary>Tears down and re-opens the connection - used after the Client ID is changed via the settings dialog.</summary>
-    public void Restart()
-    {
-        _client?.Dispose();
-        _client = null;
-        Start();
     }
 
     public void OnTrackChanged(NowPlayingMetadata metadata)
@@ -71,7 +55,7 @@ public sealed class DiscordPresenceService : IDisposable
         // is configured (uploaded under Rich Presence -> Art Assets in the
         // Discord Developer Portal for your own application) when a track
         // has no album art of its own yet.
-        string? imageKey = !string.IsNullOrEmpty(metadata.ArtUrl) ? metadata.ArtUrl : _settings.DiscordDefaultImageKey;
+        string? imageKey = !string.IsNullOrEmpty(metadata.ArtUrl) ? metadata.ArtUrl : AppCredentials.DiscordDefaultImageKey;
         if (!string.IsNullOrEmpty(imageKey))
         {
             presence.Assets = new Assets
