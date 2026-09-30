@@ -50,6 +50,7 @@ public sealed class PlayerForm : Form
     private const int CmdStartMinimized = 0x1030;
     private const int CmdMinimizeToTrayOnClose = 0x1040;
     private const int CmdShowTrackChangeNotifications = 0x1050;
+    private const int CmdLockSize = 0x1070;
     private const int CmdExit = 0x1060;
     private const int WM_SYSCOMMAND = 0x0112;
     private const int WM_INITMENU = 0x0116;
@@ -78,15 +79,14 @@ public sealed class PlayerForm : Form
 
         Text = "Death.FM Player";
 
-        // Fixed size matching the page's own .main-wrapper (1024×500).
-        // The death.fm player does not reflow, so we lock the client area to
-        // that exact size and remove the maximize button / size grips.
-        var size = new Size(1050, 550);
-        MinimumSize = size;
-        MaximumSize = size;
-        ClientSize = size; // client area = content size; Form adds titlebar/borders
-        FormBorderStyle = FormBorderStyle.FixedSingle;
+        // Default is about the same size as SomaMetalTray's window; the
+        // death.fm page is responsive so it doesn't need a fixed footprint.
+        // Whatever size was last used is restored, and locked unless the user
+        // has unlocked it from the menu to resize (see SetSizeLocked).
+        ClientSize = new Size(settings.WindowWidth ?? DefaultClientWidth, settings.WindowHeight ?? DefaultClientHeight);
         MaximizeBox = false;
+        SizeChanged += (_, _) => UpdateSizeTitle();
+        ApplySizeLock();
 
         // The tray icon is the only representation of this app that should
         // ever show - no separate taskbar button while the window's open,
@@ -123,6 +123,7 @@ public sealed class PlayerForm : Form
         // Overlaid on top of the WebView2 rather than docked/anchored via
         // layout, since it needs to float above the page in a fixed corner.
         // Bottom-right, vertically centered on the page's own time readout.
+        _castButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _castButton.Location = new Point(ClientSize.Width - _castButton.Width - 12, ClientSize.Height - _castButton.Height - 20);
         _castButton.Click += (_, _) => _ = CastMenuHelper.ShowAsync(_castService, _castButton.PointToScreen(new Point(0, _castButton.Height)));
         _castService.StateChanged += OnCastStateChanged;
@@ -133,6 +134,56 @@ public sealed class PlayerForm : Form
         Load += PlayerForm_Load;
         Resize += PlayerForm_Resize;
         FormClosing += PlayerForm_FormClosing;
+    }
+
+    // Keeps the cast button vertically centred on the page's time readout,
+    // which shifts with the page's responsive layout.
+    private void OnCountdownCentreChanged(int centreY)
+    {
+        _castButton.Top = _webView.Top + centreY - _castButton.Height / 2;
+    }
+
+    private const int DefaultClientWidth = 900;
+    private const int DefaultClientHeight = 430;
+    private static readonly Size MinUnlockedSize = new(480, 320);
+
+    /// <summary>Locks the window to its current size, or unlocks it for resizing (showing the size in the title).</summary>
+    public void SetSizeLocked(bool locked)
+    {
+        if (locked)
+            PersistWindowSize();
+        _settings.WindowSizeLocked = locked;
+        SettingsStore.Save(_settings);
+        ApplySizeLock();
+    }
+
+    private void ApplySizeLock()
+    {
+        if (_settings.WindowSizeLocked)
+        {
+            MinimumSize = Size;
+            MaximumSize = Size;
+        }
+        else
+        {
+            MaximumSize = Size.Empty;
+            MinimumSize = MinUnlockedSize;
+        }
+        UpdateSizeTitle();
+    }
+
+    private void UpdateSizeTitle()
+    {
+        Text = _settings.WindowSizeLocked || WindowState != FormWindowState.Normal
+            ? "Death.FM Player"
+            : $"Death.FM Player - {ClientSize.Width} x {ClientSize.Height}";
+    }
+
+    private void PersistWindowSize()
+    {
+        if (WindowState != FormWindowState.Normal) return;
+        _settings.WindowWidth = ClientSize.Width;
+        _settings.WindowHeight = ClientSize.Height;
     }
 
     private void OnCastStateChanged(object? sender, EventArgs e)
@@ -225,6 +276,7 @@ public sealed class PlayerForm : Form
             _nowPlaying.MetadataChanged += OnNowPlayingMetadataChanged;
             _nowPlaying.PlaybackStateChanged += OnNowPlayingPlaybackStateChanged;
             _nowPlaying.ThemeChanged += OnThemeChanged;
+            _nowPlaying.CountdownCentreChanged += OnCountdownCentreChanged;
             _nowPlaying.LoginOverlayClosed += OnLoginOverlayClosed;
             _nowPlaying.MetadataChanged += _trackChangeNotifier.OnMetadataChanged;
             _nowPlaying.PlaybackStateChanged += _trackChangeNotifier.OnPlaybackStateChanged;
@@ -510,6 +562,7 @@ function (url) {
         {
             _settings.WindowX = Location.X;
             _settings.WindowY = Location.Y;
+            PersistWindowSize();
         }
     }
 
@@ -608,6 +661,7 @@ function (url) {
         SystemMenuHelper.AddSeparator(Handle);
         SystemMenuHelper.AddItem(Handle, CmdSettings, "Settings...");
         SystemMenuHelper.AddItem(Handle, CmdCastTo, "Cast to...");
+        SystemMenuHelper.AddItem(Handle, CmdLockSize, "Lock Window Size");
         SystemMenuHelper.AddItem(Handle, CmdStartWithWindows, "Start with Windows");
         SystemMenuHelper.AddItem(Handle, CmdStartMinimized, "Start Minimized to Tray");
         SystemMenuHelper.AddItem(Handle, CmdMinimizeToTrayOnClose, "Minimize to Tray on Close");
@@ -624,6 +678,7 @@ function (url) {
         // correct regardless of which menu was used to change something last.
         if (m.Msg == WM_INITMENU)
         {
+            SystemMenuHelper.SetChecked(Handle, CmdLockSize, _settings.WindowSizeLocked);
             SystemMenuHelper.SetChecked(Handle, CmdStartWithWindows, StartupManager.IsEnabled());
             SystemMenuHelper.SetChecked(Handle, CmdStartMinimized, _settings.StartMinimizedToTray);
             SystemMenuHelper.SetChecked(Handle, CmdMinimizeToTrayOnClose, _settings.MinimizeToTrayOnClose);
@@ -653,6 +708,10 @@ function (url) {
 
             case CmdCastTo:
                 _ = CastMenuHelper.ShowAsync(_castService, Cursor.Position);
+                return true;
+
+            case CmdLockSize:
+                SetSizeLocked(!_settings.WindowSizeLocked);
                 return true;
 
             case CmdStartWithWindows:

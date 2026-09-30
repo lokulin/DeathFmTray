@@ -144,6 +144,16 @@ public sealed class TrayAppContext : ApplicationContext
         };
         menu.Items.Add(startWithWindowsItem);
 
+        var lockSizeItem = new ToolStripMenuItem("Lock Window Size")
+        {
+            Checked = _settings.WindowSizeLocked,
+            CheckOnClick = true
+        };
+        lockSizeItem.Click += (_, _) => _playerForm.SetSizeLocked(lockSizeItem.Checked);
+        // The player's own system menu can change this too, so re-sync on open.
+        menu.Opening += (_, _) => lockSizeItem.Checked = _settings.WindowSizeLocked;
+        menu.Items.Add(lockSizeItem);
+
         var startMinimizedItem = new ToolStripMenuItem("Start Minimized to Tray")
         {
             Checked = _settings.StartMinimizedToTray,

@@ -49,6 +49,9 @@ public sealed class NowPlayingService : IDisposable
     /// <summary>Raised once per page load with the station's "--theme-bg" CSS custom property, as a hex color string.</summary>
     public event Action<string>? ThemeChanged;
 
+    /// <summary>Raised when the page's time readout moves; the value is its vertical centre in WebView2 device pixels.</summary>
+    public event Action<int>? CountdownCentreChanged;
+
     /// <summary>Raised when the chat login/register overlay is closed - see PlayerForm.OnLoginOverlayClosed.</summary>
     public event Action? LoginOverlayClosed;
 
@@ -130,6 +133,10 @@ public sealed class NowPlayingService : IDisposable
                     string? bg = root.TryGetProperty("bg", out JsonElement bgEl) ? bgEl.GetString() : null;
                     if (!string.IsNullOrEmpty(bg))
                         ThemeChanged?.Invoke(bg);
+                    break;
+
+                case "countdownY":
+                    CountdownCentreChanged?.Invoke(root.GetProperty("y").GetInt32());
                     break;
 
                 case "closeLogin":
@@ -226,7 +233,36 @@ public sealed class NowPlayingService : IDisposable
         if (bg) post({ type: 'theme', bg: bg });
     }
 
+    // The page's own vertical/horizontal layout toggle doesn't belong in this
+    // wrapper (the window is resized instead), so it's hidden.
+    function hideLayoutToggle() {
+        var style = document.createElement('style');
+        style.textContent = '.player-layout-toggle { display: none !important; }' +
+            // The page's CSS makes body scroll in both directions whenever the Community
+            // tab is hovered (its content slightly overflows), which is just noise in a
+            // fixed-size window - the tab panels scroll themselves where needed.
+            ' html, body { overflow: hidden !important; }';
+        document.head.appendChild(style);
+    }
+
+    // The page's layout is responsive, so the time readout (which the native
+    // cast button lines up with) moves around. Report its vertical centre.
+    var lastCountdownY = null;
+    function updateCountdownY() {
+        var el = document.getElementById('countdown-timer');
+        if (!el) return;
+        var r = el.getBoundingClientRect();
+        var y = Math.round((r.top + r.height / 2) * window.devicePixelRatio);
+        if (y === lastCountdownY) return;
+        lastCountdownY = y;
+        post({ type: 'countdownY', y: y });
+    }
+
     function setup() {
+        hideLayoutToggle();
+        updateCountdownY();
+        window.addEventListener('resize', updateCountdownY);
+        setInterval(updateCountdownY, 500);
         wirePlaybackState();
         updateMetadata();
         postTheme();

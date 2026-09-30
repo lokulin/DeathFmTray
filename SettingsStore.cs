@@ -14,6 +14,12 @@ public sealed class AppSettings
     public int? WindowX { get; set; }
     public int? WindowY { get; set; }
 
+    // Client-area size, remembered across runs. The window is locked to this
+    // size unless unlocked from the menu (see PlayerForm.SetSizeLocked).
+    public int? WindowWidth { get; set; }
+    public int? WindowHeight { get; set; }
+    public bool WindowSizeLocked { get; set; } = true;
+
     // Change the "station" query param here if you ever want to point this
     // same app at one of death.fm's sister stations (80s.fm, adagio.fm, etc).
     public string StationUrl { get; set; } = "https://death.fm/player.php?station=dfm";
