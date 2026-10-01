@@ -1,5 +1,10 @@
 # Death.FM Tray Player
 
+> **Blastbeat Player is now the main app.** [Blastbeat Player](https://github.com/lokulin/SomaMetalTray) plays
+> Death.FM (and SomaFM's Metal Detector) natively - no web player involved - and keeps Chromecast, Last.fm and the
+> rest. It imports this app's Last.fm login, volume and window position on first run. Death.FM Tray is no longer
+> actively developed but is kept here, and still works, as a backup.
+
 A tiny Windows tray app that wraps the [Death.FM](https://death.fm) web player.
 
 ## About
